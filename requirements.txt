@@ -1,3 +1,4 @@
-playwright==1.42.0
-beautifulsoup4
+playwright==1.44.0
+flask
 requests
+beautifulsoup4
