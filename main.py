@@ -1,29 +1,18 @@
+from flask import Flask
+import threading
 from playwright.sync_api import sync_playwright, Error as PlaywrightError
-import sys
-import traceback
+import os, traceback
 
-# Importa tu scraper si lo tienes en otro archivo
-# from scraper.playwright_scraper import scrape_all_properties
+app = Flask(__name__)
 
 def run_scraping():
     try:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
-            
-            # Aquí va tu lógica de scraping
             page.goto("https://www.inmuebles.smartfinques.com/")
-            
-            # Ejemplo: tomar título de la página
-            title = page.title()
-            print(f"Título de la página: {title}")
-
-            # Si tienes función scrape_all_properties()
-            # properties = scrape_all_properties(page)
-            # print(f"Total inmuebles encontrados: {len(properties)}")
-            
+            print("Página cargada correctamente:", page.title())
             browser.close()
-
     except PlaywrightError as e:
         print("❌ Error de Playwright:", e)
         traceback.print_exc()
@@ -31,6 +20,13 @@ def run_scraping():
         print("❌ Error general:", e)
         traceback.print_exc()
 
+@app.route("/")
+def home():
+    return "SmartFinques Scraper corriendo!"
 
 if __name__ == "__main__":
-    run_scraping()
+    # Ejecutar scraping en hilo aparte
+    threading.Thread(target=run_scraping, daemon=True).start()
+
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
