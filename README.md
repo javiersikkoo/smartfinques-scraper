@@ -1,0 +1,1 @@
+# smartfinques-scraper
