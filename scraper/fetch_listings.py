@@ -15,10 +15,8 @@ def extract_background_image(style):
     match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style)
     if match:
         img_url = match.group(1)
-
         if not img_url.startswith("http"):
             img_url = urljoin(BASE_URL, img_url)
-
         return img_url
 
     return None
@@ -51,23 +49,27 @@ def fetch_listings():
 
         cards = soup.select("div.paginacion-ficha-bloque1")
 
-        # Si no hay inmuebles → fin de paginación
         if not cards:
             break
 
-        for card in cards:
+        # Buscar TODOS los enlaces /ficha/ de la página
+        property_links = []
+        for a in soup.find_all("a", href=True):
+            if "/ficha/" in a["href"]:
+                full_url = urljoin(BASE_URL, a["href"])
+                if full_url not in property_links:
+                    property_links.append(full_url)
+
+        # Emparejar cards con enlaces
+        for index, card in enumerate(cards):
 
             price_el = card.select_one(".paginacion-ficha-tituloprecio")
             price = price_el.get_text(strip=True) if price_el else None
 
-            url_property = None
-            for a in card.find_all("a", href=True):
-                if "/ficha/" in a["href"]:
-                    url_property = urljoin(BASE_URL, a["href"])
-                    break
-
             style = card.get("style", "")
             image = extract_background_image(style)
+
+            url_property = property_links[index] if index < len(property_links) else None
 
             all_listings.append({
                 "price": price,
@@ -76,6 +78,6 @@ def fetch_listings():
             })
 
         page += 1
-        time.sleep(1)  # pequeña pausa para no saturar
+        time.sleep(1)
 
     return all_listings
