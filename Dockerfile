@@ -1,23 +1,17 @@
-# Usamos la imagen oficial de Playwright que ya tiene navegadores y dependencias
+# Imagen base con todas las dependencias de Playwright incluidas
 FROM mcr.microsoft.com/playwright:focal
 
-# Directorio de trabajo
 WORKDIR /app
 
 # Copiamos todo el proyecto
 COPY . .
 
-# Actualizamos pip
+# Actualizamos pip e instalamos dependencias Python
 RUN pip install --upgrade pip
-
-# Instalamos dependencias Python
 RUN pip install -r requirements.txt
 
-# Instalamos los navegadores de Playwright
+# Instalamos navegadores de Playwright (ya están en la imagen, pero asegura)
 RUN playwright install
 
-# No exponemos ningún puerto porque será Background Worker
-# EXPOSE 8000  # No hace falta
-
-# Comando por defecto para ejecutar el scraping
+# Render necesita CMD para arrancar algo en un puerto
 CMD ["python", "main.py"]
