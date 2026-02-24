@@ -1,65 +1,24 @@
-# Dockerfile para Render - Smartfinques Scraper
-# Python 3.11 bullseye + Playwright
+# Usamos la imagen oficial de Playwright con Ubuntu + navegadores + Python 3.11
+FROM mcr.microsoft.com/playwright:focal
 
-FROM python:3.11-bullseye
-
-# Evitar pyc y buffers
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-
+# Configuramos el directorio de trabajo dentro del contenedor
 WORKDIR /app
 
-# ================================
-# Instalar librerías del sistema necesarias para Chromium
-# ================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    apt-transport-https \
-    gnupg \
-    ca-certificates \
-    wget \
-    curl \
-    fonts-liberation \
-    libatk-1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libgbm1 \
-    libglib2.0-0 \
-    libgtk-3-0 \
-    libnss3 \
-    libpango-1.0-0 \
-    libx11-6 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    libxrandr2 \
-    libxss1 \
-    libasound2 \
-    libatspi2.0-0 \
-    libdbus-1-3 \
-    libexpat1 \
-    libxkbcommon0 \
-    --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
-
-# ================================
-# Copiar proyecto
-# ================================
+# Copiamos los archivos de tu proyecto al contenedor
 COPY . .
 
-# ================================
-# Instalar pip y librerías Python
-# ================================
+# Actualizamos pip
 RUN pip install --upgrade pip
+
+# Instalamos dependencias Python desde requirements.txt
 RUN pip install -r requirements.txt
 
-# ================================
-# Instalar Playwright y Chromium
-# ================================
-RUN playwright install chromium
+# Instalamos navegadores de Playwright (Chromium, Firefox, WebKit)
+# Esto asegura que los navegadores estén listos
+RUN playwright install
 
-# ================================
-# Comando de inicio
-# ================================
+# Exponemos el puerto que usarás si tu app tiene web (cambia si no es necesario)
+EXPOSE 8000
+
+# Comando por defecto al iniciar el contenedor
 CMD ["python", "main.py"]
