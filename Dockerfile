@@ -1,24 +1,23 @@
-# Usamos la imagen oficial de Playwright con Ubuntu + navegadores + Python 3.11
+# Usamos la imagen oficial de Playwright que ya tiene navegadores y dependencias
 FROM mcr.microsoft.com/playwright:focal
 
-# Configuramos el directorio de trabajo dentro del contenedor
+# Directorio de trabajo
 WORKDIR /app
 
-# Copiamos los archivos de tu proyecto al contenedor
+# Copiamos todo el proyecto
 COPY . .
 
 # Actualizamos pip
 RUN pip install --upgrade pip
 
-# Instalamos dependencias Python desde requirements.txt
+# Instalamos dependencias Python
 RUN pip install -r requirements.txt
 
-# Instalamos navegadores de Playwright (Chromium, Firefox, WebKit)
-# Esto asegura que los navegadores estén listos
+# Instalamos los navegadores de Playwright
 RUN playwright install
 
-# Exponemos el puerto que usarás si tu app tiene web (cambia si no es necesario)
-EXPOSE 8000
+# No exponemos ningún puerto porque será Background Worker
+# EXPOSE 8000  # No hace falta
 
-# Comando por defecto al iniciar el contenedor
+# Comando por defecto para ejecutar el scraping
 CMD ["python", "main.py"]
