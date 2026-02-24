@@ -2,15 +2,13 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import re
+import time
 
 BASE_URL = "https://www.inmuebles.smartfinques.com"
 LISTINGS_URL = BASE_URL + "/venta"
 
 
 def extract_background_image(style):
-    """
-    Extrae la URL de background-image desde el atributo style
-    """
     if not style:
         return None
 
@@ -18,7 +16,6 @@ def extract_background_image(style):
     if match:
         img_url = match.group(1)
 
-        # Si es relativa (ej: img/nofotos.png), la convertimos en absoluta
         if not img_url.startswith("http"):
             img_url = urljoin(BASE_URL, img_url)
 
@@ -28,44 +25,57 @@ def extract_background_image(style):
 
 
 def fetch_listings():
-    response = requests.get(
-        LISTINGS_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        },
-        timeout=15
-    )
 
-    response.raise_for_status()
+    page = 1
+    all_listings = []
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    while True:
 
-    # Cada inmueble está en este div
-    cards = soup.select("div.paginacion-ficha-bloque1")
+        if page == 1:
+            url = LISTINGS_URL
+        else:
+            url = f"{LISTINGS_URL}/{page}"
 
-    listings = []
+        print(f"Scrapeando página {page}...")
 
-    for card in cards:
+        response = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=15
+        )
 
-        # Precio
-        price_el = card.select_one(".paginacion-ficha-tituloprecio")
-        price = price_el.get_text(strip=True) if price_el else None
+        if response.status_code != 200:
+            break
 
-        # Buscar enlace real que contenga /ficha/
-        url = None
-        for a in card.find_all("a", href=True):
-            if "/ficha/" in a["href"]:
-                url = urljoin(BASE_URL, a["href"])
-                break
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        # Imagen principal (background-image)
-        style = card.get("style", "")
-        image = extract_background_image(style)
+        cards = soup.select("div.paginacion-ficha-bloque1")
 
-        listings.append({
-            "price": price,
-            "url": url,
-            "image": image,
-        })
+        # Si no hay inmuebles → fin de paginación
+        if not cards:
+            break
 
-    return listings
+        for card in cards:
+
+            price_el = card.select_one(".paginacion-ficha-tituloprecio")
+            price = price_el.get_text(strip=True) if price_el else None
+
+            url_property = None
+            for a in card.find_all("a", href=True):
+                if "/ficha/" in a["href"]:
+                    url_property = urljoin(BASE_URL, a["href"])
+                    break
+
+            style = card.get("style", "")
+            image = extract_background_image(style)
+
+            all_listings.append({
+                "price": price,
+                "url": url_property,
+                "image": image,
+            })
+
+        page += 1
+        time.sleep(1)  # pequeña pausa para no saturar
+
+    return all_listings
