@@ -1,25 +1,20 @@
-# ================================
-# Dockerfile para Smartfinques Scraper
-# Python 3.11 + Playwright + Chromium
-# ================================
+# Dockerfile corregido para Render con Playwright
 
-# Base Python 3.11 slim
 FROM python:3.11-slim
 
-# Evitamos pyc y buffers
+# Evitar pyc y buffers
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Carpeta de trabajo dentro del contenedor
 WORKDIR /app
 
-# ================================
-# Instalación librerías del sistema necesarias para Chromium
-# ================================
-RUN apt-get update && apt-get install -y \
+# Instalar librerías necesarias + herramientas básicas
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    apt-transport-https \
+    gnupg \
+    ca-certificates \
     wget \
     curl \
-    ca-certificates \
     fonts-liberation \
     libatk-1.0-0 \
     libatk-bridge2.0-0 \
@@ -45,23 +40,15 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-# ================================
 # Copiar proyecto
-# ================================
 COPY . .
 
-# ================================
-# Instalar dependencias Python
-# ================================
+# Instalar pip y librerías Python
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# ================================
 # Instalar Playwright y Chromium
-# ================================
 RUN playwright install chromium
 
-# ================================
-# Comando de inicio
-# ================================
+# Comando por defecto
 CMD ["python", "main.py"]
