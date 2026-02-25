@@ -25,23 +25,28 @@ def scrape_properties():
 
             while True:
                 url = f"https://www.inmuebles.smartfinques.com/?page={page_number}"
-                print(f"Scrapeando página {page_number}")
-                page.goto(url, timeout=60000)
+                print(f"🌍 Visitando: {url}")
 
-                cards = page.query_selector_all(".property-card")  # ⚠️ AJUSTAR SELECTOR
+                page.goto(url, timeout=60000)
+                page.wait_for_timeout(3000)  # Espera 3 segundos por JS
+
+                print("✅ Página cargada")
+
+                # TEMPORAL: selector más genérico para ver si detecta algo
+                cards = page.query_selector_all("article")
+                print(f"🔎 Cards encontradas: {len(cards)}")
 
                 if not cards:
+                    print("❌ No hay más cards, saliendo...")
                     break
 
                 for card in cards:
                     try:
-                        price = card.query_selector(".price")
-                        link = card.query_selector("a")
-
-                        properties.append({
-                            "price": price.inner_text().strip() if price else None,
-                            "url": link.get_attribute("href") if link else None
-                        })
+                        text = card.inner_text()
+                        if len(text) > 20:
+                            properties.append({
+                                "text_preview": text[:150]
+                            })
                     except:
                         continue
 
@@ -49,11 +54,11 @@ def scrape_properties():
 
             browser.close()
 
-        # 🔥 Esto crea el JSON automáticamente
+        # Guardamos JSON
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump(properties, f, indent=2, ensure_ascii=False)
 
-        print(f"✅ Scraping completado: {len(properties)} inmuebles")
+        print(f"✅ Scraping completado: {len(properties)} elementos guardados")
 
     except Exception as e:
         print("❌ Error scraping:", e)
@@ -84,6 +89,8 @@ def get_properties():
 
 
 if __name__ == "__main__":
+    # Ejecuta scraping inmediato
+    threading.Thread(target=scrape_properties, daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()
 
     port = int(os.environ.get("PORT", 8000))
