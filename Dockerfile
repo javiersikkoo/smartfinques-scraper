@@ -1,17 +1,16 @@
-# Imagen base con todas las dependencias de Playwright incluidas
-FROM mcr.microsoft.com/playwright:focal
+# Imagen oficial de Playwright con Python 3.11 incluido
+FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
 
 WORKDIR /app
 
-# Copiamos todo el proyecto
+# Copiamos proyecto
 COPY . .
 
-# Actualizamos pip e instalamos dependencias Python
+# Instalamos dependencias Python
 RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 
-# Instalamos navegadores de Playwright (ya están en la imagen, pero asegura)
-RUN playwright install
+# Instalamos navegadores (por si acaso)
+RUN playwright install --with-deps
 
-# Render necesita CMD para arrancar algo en un puerto
 CMD ["python", "main.py"]
