@@ -1,36 +1,36 @@
-import requests
+# main.py
+import json
 from scraper import scrape_properties
+from flask import Flask, jsonify
 
-# Configuración de Base44
-BASE44_API_URL = "https://api.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
-BASE44_API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
+app = Flask(__name__)
 
-def send_to_base44(properties):
-    headers = {
-        "Authorization": f"Bearer {BASE44_API_KEY}",
-        "Content-Type": "application/json"
-    }
+@app.route("/")
+def index():
+    return "🚀 Scraper Smartfinques activo"
 
-    for prop in properties:
-        data = {
-            "fields": {
-                "Titulo": prop["titulo"],
-                "Precio": prop["precio"],
-                "Link": prop["link"],
-                "Habitaciones": prop["habitaciones"],
-                "Baños": prop["baños"],
-                "Superficie": prop["superficie"]
-            }
-        }
-        response = requests.post(BASE44_API_URL, headers=headers, json=data)
-        if response.status_code not in [200, 201]:
-            print(f"Error enviando inmueble {prop['titulo']}: {response.text}")
+@app.route("/scrape")
+def scrape():
+    try:
+        # Ejecutamos la función de scraping
+        properties = scrape_properties()
+
+        # Guardamos el resultado en properties.json
+        with open("properties.json", "w", encoding="utf-8") as f:
+            json.dump(properties, f, ensure_ascii=False, indent=2)
+
+        # Devolvemos la información en JSON también
+        return jsonify({"count": len(properties), "status": "ok"})
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 if __name__ == "__main__":
     print("🚀 Iniciando scraping...")
     properties = scrape_properties()
-    print(f"✅ {len(properties)} inmuebles encontrados.")
+    
+    # Guardamos en properties.json al iniciar
+    with open("properties.json", "w", encoding="utf-8") as f:
+        json.dump(properties, f, ensure_ascii=False, indent=2)
 
-    print("🚀 Enviando datos a Base44...")
-    send_to_base44(properties)
-    print("✅ Datos enviados a Base44 correctamente.")
+    print(f"✅ Scraping completado, {len(properties)} inmuebles encontrados")
+    app.run(host="0.0.0.0", port=10000)
