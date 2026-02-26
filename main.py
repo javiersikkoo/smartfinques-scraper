@@ -1,21 +1,36 @@
-from flask import Flask, jsonify
+import requests
 from scraper import scrape_properties
 
-app = Flask(__name__)
+# Configuración de Base44
+BASE44_API_URL = "https://api.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
+BASE44_API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-# Endpoint para obtener los inmuebles
-@app.route("/properties")
-def get_properties():
-    data = scrape_properties()
-    if not data:
-        return jsonify({"error": "Aún no hay datos scrapeados"}), 200
-    return jsonify({"count": len(data), "status": "ok", "properties": data})
+def send_to_base44(properties):
+    headers = {
+        "Authorization": f"Bearer {BASE44_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-# Endpoint de prueba
-@app.route("/")
-def home():
-    return "SmartFinques Scraper Service is running 🚀"
+    for prop in properties:
+        data = {
+            "fields": {
+                "Titulo": prop["titulo"],
+                "Precio": prop["precio"],
+                "Link": prop["link"],
+                "Habitaciones": prop["habitaciones"],
+                "Baños": prop["baños"],
+                "Superficie": prop["superficie"]
+            }
+        }
+        response = requests.post(BASE44_API_URL, headers=headers, json=data)
+        if response.status_code not in [200, 201]:
+            print(f"Error enviando inmueble {prop['titulo']}: {response.text}")
 
 if __name__ == "__main__":
-    # Servidor en todas las interfaces y puerto 10000
-    app.run(host="0.0.0.0", port=10000)
+    print("🚀 Iniciando scraping...")
+    properties = scrape_properties()
+    print(f"✅ {len(properties)} inmuebles encontrados.")
+
+    print("🚀 Enviando datos a Base44...")
+    send_to_base44(properties)
+    print("✅ Datos enviados a Base44 correctamente.")
