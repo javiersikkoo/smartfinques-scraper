@@ -1,48 +1,42 @@
 import requests
 from bs4 import BeautifulSoup
 
-BASE_URL = "https://www.inmuebles.smartfinques.com/"
+BASE_URL = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1#modulo-paginacion"
 
 def scrape_properties():
     properties = []
     page = 1
+
     while True:
-        url = f"{BASE_URL}?pag={page}&idio=1#modulo-paginacion"
-        response = requests.get(url)
-        if response.status_code != 200:
+        url = BASE_URL.format(page)
+        r = requests.get(url)
+        if r.status_code != 200:
             break
 
-        soup = BeautifulSoup(response.text, "html.parser")
-        items = soup.select("div.paginacion-ficha-bloque1")
+        soup = BeautifulSoup(r.text, "html.parser")
+        items = soup.select(".paginacion-ficha-bloque1")
         if not items:
             break
 
         for item in items:
-            title_tag = item.select_one("span.paginacion-ficha-tituloprecio")
-            title = title_tag.text.strip() if title_tag else "N/A"
+            titulo = item.select_one(".paginacion-ficha-tituloprecio")
+            precio = titulo.get_text(strip=True) if titulo else None
 
             link_tag = item.select_one("a.irAfichaPropiedad")
-            link = BASE_URL.rstrip("/") + link_tag["href"] if link_tag else None
+            link = link_tag["href"] if link_tag else None
 
-            more_data = item.find_next_sibling("div", class_="paginacion-ficha-bloque2")
-            if more_data:
-                ref_tag = more_data.select_one("li:contains('Referencia') span")
-                ref = ref_tag.text.strip() if ref_tag else None
-
-                baths_tag = more_data.select_one("li:contains('Baños') span")
-                baths = baths_tag.text.strip() if baths_tag else None
-
-                area_tag = more_data.select_one("li:contains('Superficie') span")
-                area = area_tag.text.strip() if area_tag else None
-            else:
-                ref = baths = area = None
+            detalle = item.select_one(".paginacion-ficha-bloque2")
+            habitaciones = detalle.select_one(".habitaciones")
+            baños = detalle.select_one(".banyos")
+            superficie = detalle.select_one(".superficie")
 
             properties.append({
-                "title": title,
-                "reference": ref,
-                "baths": baths,
-                "area": area,
-                "link": link
+                "titulo": titulo.get_text(strip=True) if titulo else None,
+                "precio": precio,
+                "link": link,
+                "habitaciones": habitaciones.get_text(strip=True) if habitaciones else None,
+                "baños": baños.get_text(strip=True) if baños else None,
+                "superficie": superficie.get_text(strip=True) if superficie else None
             })
 
         page += 1
