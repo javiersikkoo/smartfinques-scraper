@@ -1,82 +1,58 @@
-# scraper.py
-
 import requests
 from bs4 import BeautifulSoup
-import json
-from datetime import datetime
+import time
 
-# Archivo donde guardaremos los inmuebles
-OUTPUT_FILE = "properties.json"
+BASE_URL = "https://www.inmuebles.smartfinques.com/"
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
+}
 
-# Función principal de scraping
 def scrape_properties():
-    base_url = "https://www.inmuebles.smartfinques.com/"
-    params = {
-        "pag": 1,
-        "idio": 1
-    }
-
     all_properties = []
+    page = 1
 
     while True:
-        print(f"Scraping página {params['pag']}...")
-        response = requests.get(base_url, params=params)
+        print(f"🔎 Scraping página {page}...")
+        url = f"{BASE_URL}?pag={page}&idio=1#modulo-paginacion"
+        response = requests.get(url, headers=HEADERS)
         if response.status_code != 200:
-            print(f"Error accediendo a la página {params['pag']}")
+            print(f"❌ Error al acceder a la página {page}: {response.status_code}")
             break
 
         soup = BeautifulSoup(response.text, "html.parser")
-        property_blocks = soup.select(".paginacion-ficha-bloque1")
+        property_blocks = soup.find_all("div", class_="paginacion-ficha-bloque1")
 
         if not property_blocks:
-            print("No hay más propiedades en esta página.")
+            print("🚫 No hay más propiedades. Fin del scraping.")
             break
 
         for block in property_blocks:
             try:
-                title_tag = block.select_one(".paginacion-ficha-tituloprecio")
-                title = title_tag.text.strip() if title_tag else ""
+                title = block.find("span", class_="paginacion-ficha-tituloprecio").get_text(strip=True)
+                link_tag = block.find("a", class_="irAfichaPropiedad")
+                link = link_tag["href"] if link_tag else None
 
-                # Enlace a la ficha completa
-                link_tag = block.select_one("a.irAfichaPropiedad")
-                link = link_tag['href'] if link_tag else ""
+                more_data_block = block.find_next_sibling("div", class_="paginacion-ficha-bloque2")
+                details = {}
+                if more_data_block:
+                    lis = more_data_block.select("ul > li.bloque-icono-name-valor1")
+                    for li in lis:
+                        label = li.find("span").get_text(strip=True)
+                        value = li.find_all("span")[1].get_text(strip=True)
+                        details[label] = value
 
-                # Precio
-                price = title.replace("Venta", "").replace("€", "").strip()
-
-                # Datos adicionales (habitaciones, baños, superficie)
-                data_block = block.find_next_sibling("div", class_="paginacion-ficha-bloque2")
-                habitaciones = baños = superficie = None
-                if data_block:
-                    for li in data_block.select("li.bloque-icono-name-valor1"):
-                        label = li.select_one("span").text.strip().lower()
-                        value = li.find_all("span")[-1].text.strip()
-                        if "habitaciones" in label:
-                            habitaciones = value
-                        elif "baños" in label or "banyos" in label:
-                            baños = value
-                        elif "superficie" in label:
-                            superficie = value
-
-                property_data = {
+                all_properties.append({
                     "title": title,
-                    "price": price,
                     "link": link,
-                    "habitaciones": habitaciones,
-                    "baños": baños,
-                    "superficie": superficie,
-                    "scraped_at": datetime.utcnow().isoformat()
-                }
-                all_properties.append(property_data)
+                    "details": details
+                })
             except Exception as e:
-                print(f"Error procesando un bloque: {e}")
+                print(f"⚠️ Error parseando un inmueble: {e}")
+                continue
 
-        # Siguiente página
-        params['pag'] += 1
+        page += 1
+        time.sleep(1)  # evita sobrecargar la web
 
-    # Guardar resultados en JSON
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(all_properties, f, ensure_ascii=False, indent=2)
-
-    print(f"Scraping completado. {len(all_properties)} propiedades guardadas en {OUTPUT_FILE}")
+    print(f"✅ Scraping completado: {len(all_properties)} inmuebles encontrados.")
     return all_properties
