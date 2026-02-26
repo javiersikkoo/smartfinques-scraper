@@ -1,7 +1,10 @@
+# scraper.py
 import requests
 from bs4 import BeautifulSoup
+import json
 
-BASE_URL = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1#modulo-paginacion"
+BASE_URL = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1"
+OUTPUT_FILE = "properties.json"
 
 def scrape_properties():
     properties = []
@@ -9,36 +12,71 @@ def scrape_properties():
 
     while True:
         url = BASE_URL.format(page)
-        r = requests.get(url)
-        if r.status_code != 200:
+        print(f"Scraping página {page} -> {url}")
+        response = requests.get(url)
+        if response.status_code != 200:
+            print(f"No se pudo obtener la página {page}, status: {response.status_code}")
             break
 
-        soup = BeautifulSoup(r.text, "html.parser")
-        items = soup.select(".paginacion-ficha-bloque1")
-        if not items:
+        soup = BeautifulSoup(response.text, "html.parser")
+        detalles = soup.select(".paginacion-ficha-bloque2")  # Selector del contenedor de cada inmueble
+
+        if not detalles:
+            print("No se encontraron más inmuebles.")
             break
 
-        for item in items:
-            titulo = item.select_one(".paginacion-ficha-tituloprecio")
-            precio = titulo.get_text(strip=True) if titulo else None
+        for detalle in detalles:
+            # Nombre / título
+            titulo_tag = detalle.select_one(".titulo, .titulo1")
+            titulo = titulo_tag.text.strip() if titulo_tag else None
 
-            link_tag = item.select_one("a.irAfichaPropiedad")
-            link = link_tag["href"] if link_tag else None
+            # Precio
+            precio_tag = detalle.select_one(".paginacion-ficha-tituloprecio, .precio1")
+            precio = precio_tag.text.strip() if precio_tag else None
 
-            detalle = item.select_one(".paginacion-ficha-bloque2")
-            habitaciones = detalle.select_one(".habitaciones")
-            baños = detalle.select_one(".banyos")
-            superficie = detalle.select_one(".superficie")
+            # Referencia
+            ref_tag = detalle.select_one(".ref")
+            referencia = ref_tag.text.strip() if ref_tag else None
+
+            # Habitaciones
+            habitaciones_tag = detalle.select_one(".habitaciones")
+            habitaciones = habitaciones_tag.text.strip() if habitaciones_tag else None
+
+            # Baños
+            banos_tag = detalle.select_one(".banyos, .bano")
+            banos = banos_tag.text.strip() if banos_tag else None
+
+            # Superficie
+            superficie_tag = detalle.select_one(".superficie")
+            superficie = superficie_tag.text.strip() if superficie_tag else None
+
+            # URL de la ficha
+            url_tag = detalle.select_one("a.irAfichaPropiedad, a.paginacion-ficha-masinfo")
+            url_ficha = url_tag["href"] if url_tag and url_tag.has_attr("href") else None
+
+            # Imagen
+            imagen_tag = detalle.select_one(".imagenesComoBackground")
+            imagen_url = imagen_tag.get("cargaFoto") if imagen_tag and imagen_tag.has_attr("cargaFoto") else None
 
             properties.append({
-                "titulo": titulo.get_text(strip=True) if titulo else None,
+                "titulo": titulo,
                 "precio": precio,
-                "link": link,
-                "habitaciones": habitaciones.get_text(strip=True) if habitaciones else None,
-                "baños": baños.get_text(strip=True) if baños else None,
-                "superficie": superficie.get_text(strip=True) if superficie else None
+                "referencia": referencia,
+                "habitaciones": habitaciones,
+                "banos": banos,
+                "superficie": superficie,
+                "url_ficha": url_ficha,
+                "imagen": imagen_url
             })
 
         page += 1
 
+    # Guardamos en JSON
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(properties, f, ensure_ascii=False, indent=2)
+
+    print(f"Scraping completado. Total inmuebles: {len(properties)}")
     return properties
+
+if __name__ == "__main__":
+    scrape_properties()
