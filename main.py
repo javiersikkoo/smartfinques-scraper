@@ -1,27 +1,28 @@
 from flask import Flask, jsonify
-from scraper.scraper_playwright import scrape_properties
+from scraper import scrape_properties
 
 app = Flask(__name__)
 
-# Variable global para almacenar inmuebles en memoria
-properties_data = []
+properties_cache = []
 
-# Endpoint que dispara el scraping
 @app.route("/scrape")
 def scrape():
-    global properties_data
-    try:
-        properties_data = scrape_properties()  # ejecuta el scraping
-        return jsonify({"status": "ok", "count": len(properties_data)})
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    global properties_cache
+    properties_cache = scrape_properties()
+    return jsonify({
+        "status": "ok",
+        "count": len(properties_cache)
+    })
 
-# Endpoint que devuelve los inmuebles
 @app.route("/properties")
-def get_properties():
-    if not properties_data:
+def properties():
+    if not properties_cache:
         return jsonify({"error": "Aún no hay datos scrapeados"})
-    return jsonify(properties_data)
+    return jsonify(properties_cache)
+
+@app.route("/")
+def home():
+    return "Smartfinques Scraper funcionando 🚀"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
