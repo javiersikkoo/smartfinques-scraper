@@ -1,43 +1,52 @@
-# main.py
 from flask import Flask, jsonify
-from threading import Thread
-import time
-import os
 from scraper import scrape_properties
+from apscheduler.schedulers.background import BackgroundScheduler
+import atexit
+import json
 
 app = Flask(__name__)
+
+# Archivo donde guardaremos los inmuebles
 DATA_FILE = "properties.json"
 
-# Función para actualizar el JSON automáticamente cada X segundos
-def auto_scrape(interval=1800):
-    while True:
-        print("🚀 Iniciando scraping automático...")
-        props = scrape_properties()
-        print(f"Scrape completado. Total inmuebles: {len(props)}")
-        time.sleep(interval)
+# Función que ejecuta el scraper y guarda los datos
+def update_properties():
+    print("🚀 Ejecutando scraping automático...")
+    try:
+        properties = scrape_properties()  # tu función existente
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(properties, f, ensure_ascii=False, indent=4)
+        print(f"✅ Scraping completado. {len(properties)} inmuebles guardados.")
+    except Exception as e:
+        print(f"❌ Error en scraping: {e}")
 
-# Endpoint para forzar un scrapeo manual
-@app.route("/scrape", methods=["GET"])
-def scrape_endpoint():
-    props = scrape_properties()
-    return jsonify({"status": "ok", "count": len(props)})
+# Scheduler que ejecuta el scraper cada 6 horas
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=update_properties, trigger="interval", hours=6)
+scheduler.start()
 
-# Endpoint para devolver propiedades
-@app.route("/properties", methods=["GET"])
+# Asegurar que el scheduler se cierre al terminar la app
+atexit.register(lambda: scheduler.shutdown())
+
+# Endpoint para obtener los datos de los inmuebles
+@app.route("/properties")
 def get_properties():
-    if os.path.exists(DATA_FILE):
+    try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = f.read()
-        if not data or data == "[]":
-            return jsonify({"error": "Aún no hay datos scrapeados"})
-        return data
-    else:
-        return jsonify({"error": "Aún no hay datos scrapeados"})
+            properties = json.load(f)
+        if not properties:
+            return jsonify({"error": "Aún no hay datos scrapeados"}), 200
+        return jsonify({"count": len(properties), "status": "ok", "data": properties})
+    except FileNotFoundError:
+        return jsonify({"error": "Aún no hay datos scrapeados"}), 200
+
+# Endpoint opcional para forzar el scraping manualmente
+@app.route("/scrape")
+def manual_scrape():
+    update_properties()
+    return jsonify({"status": "Scraping ejecutado"}), 200
 
 if __name__ == "__main__":
-    # Lanzamos scraping automático en segundo plano
-    thread = Thread(target=auto_scrape, args=(1800,), daemon=True)  # cada 30 min
-    thread.start()
-
-    # Ejecutamos Flask
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    # Ejecutar scraping inicial al arrancar la app
+    update_properties()
+    app.run(host="0.0.0.0", port=10000)
