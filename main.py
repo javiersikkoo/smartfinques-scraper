@@ -1,37 +1,26 @@
-# main.py
-import json
+from flask import Flask, jsonify
 from scraper import scrape_properties
 
-# Función para enviar a Base44
-def send_to_base44(properties):
-    print("🚀 Enviando datos a Base44...")
-    for prop in properties:
-        # Nos aseguramos de que todas las claves existen
-        prop_base44 = {
-            "Referencia": prop.get("Referencia", ""),
-            "Precio": prop.get("Precio", ""),
-            "Habitaciones": prop.get("Habitaciones", ""),
-            "Baños": prop.get("Baños", ""),
-            "Superficie": prop.get("Superficie", ""),
-            "Link": prop.get("Link", ""),
-            "Descripcion": prop.get("Descripcion", "")
-        }
-        print("🚀 Enviando a Base44:", prop_base44)
-        # Aquí iría el código real para enviar a Base44
-        # Por ahora solo hacemos print para prueba
+app = Flask(__name__)
 
-# Iniciamos scraping
-print("🚀 Iniciando scraping...")
-properties = scrape_properties()
-print(f"✅ Scraping completado. Total inmuebles: {len(properties)}")
+@app.route("/")
+def index():
+    return "🚀 Scraper de Smartfinques activo. Accede a /properties para ver los inmuebles."
 
-# Guardamos en JSON local para revisar
-with open("properties.json", "w", encoding="utf-8") as f:
-    json.dump(properties, f, ensure_ascii=False, indent=4)
-print("✅ Datos guardados en properties.json")
+@app.route("/properties")
+def get_properties():
+    # Ejecuta el scraping
+    properties = scrape_properties()
+    
+    # Devuelve un JSON con el número de propiedades y la lista
+    return jsonify({
+        "count": len(properties),
+        "properties": properties,
+        "status": "ok"
+    })
 
-# Validamos que haya propiedades antes de enviar
-if properties:
-    send_to_base44(properties)
-else:
-    print("⚠️ No se encontraron propiedades para enviar a Base44")
+if __name__ == "__main__":
+    # Render detecta el puerto desde la variable de entorno PORT
+    import os
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
