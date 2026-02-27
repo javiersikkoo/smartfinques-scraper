@@ -1,6 +1,9 @@
 # scraper.py
 from bs4 import BeautifulSoup
 import requests
+import time
+
+BASE_DOMAIN = "https://www.inmuebles.smartfinques.com/"
 
 def scrape_properties():
     base_url = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1#modulo-paginacion"
@@ -14,31 +17,40 @@ def scrape_properties():
 
         items = soup.select("div.paginacion-ficha-bloque1")
         if not items:
-            # Si no hay más propiedades, terminamos
             break
 
         for item in items:
             try:
-                referencia = item.select_one(".bloque-icono-name-valor1 .ref")
-                referencia = referencia.text.strip() if referencia else None
+                precio_tag = item.select_one(".paginacion-ficha-tituloprecio")
+                precio = precio_tag.text.strip() if precio_tag else None
 
-                precio = item.select_one(".paginacion-ficha-tituloprecio")
-                precio = precio.text.strip() if precio else None
+                link_tag = item.select_one("a.irAfichaPropiedad")
+                link = link_tag["href"].strip() if link_tag else None
 
-                habitaciones = item.select_one(".habitaciones")
-                habitaciones = habitaciones.text.strip() if habitaciones else None
+                # Si no hay link, saltamos
+                if not link:
+                    continue
 
-                banos = item.select_one(".banyos")
-                banos = banos.text.strip() if banos else None
+                full_link = BASE_DOMAIN + link
 
-                superficie = item.select_one(".superficie")
-                superficie = superficie.text.strip() if superficie else None
+                # ---- ENTRAMOS EN LA FICHA ----
+                detail_response = requests.get(full_link)
+                detail_soup = BeautifulSoup(detail_response.text, "html.parser")
 
-                link = item.select_one("a.irAfichaPropiedad")
-                link = link["href"].strip() if link else None
+                referencia_tag = detail_soup.select_one(".ref")
+                referencia = referencia_tag.text.strip() if referencia_tag else None
 
-                descripcion = item.select_one(".paginacion-ficha-datos .titulo")
-                descripcion = descripcion.text.strip() if descripcion else None
+                habitaciones_tag = detail_soup.select_one(".habitaciones")
+                habitaciones = habitaciones_tag.text.strip() if habitaciones_tag else None
+
+                banos_tag = detail_soup.select_one(".banyos")
+                banos = banos_tag.text.strip() if banos_tag else None
+
+                superficie_tag = detail_soup.select_one(".superficie")
+                superficie = superficie_tag.text.strip() if superficie_tag else None
+
+                descripcion_tag = detail_soup.select_one(".descripcion")
+                descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
                 propiedades.append({
                     "Referencia": referencia,
@@ -46,13 +58,16 @@ def scrape_properties():
                     "Habitaciones": habitaciones,
                     "Baños": banos,
                     "Superficie": superficie,
-                    "Link": link,
+                    "Link": full_link,
                     "Descripcion": descripcion
                 })
+
+                time.sleep(0.3)  # pequeña pausa para no saturar
+
             except Exception as e:
                 print("Error procesando propiedad:", e)
 
-        print(f"✅ Página {page} procesada, propiedades encontradas: {len(items)}")
+        print(f"✅ Página {page} completada")
         page += 1
 
     print(f"🚀 Scraping completado. Total inmuebles: {len(propiedades)}")
