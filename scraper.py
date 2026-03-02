@@ -6,7 +6,7 @@ import time
 BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
 
 def scrape_properties():
-    base_url = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1#modulo-paginacion"
+    base_url = "https://www.inmuebles.smartfinques.com/venta?pag={}"
     propiedades = []
     page = 1
 
