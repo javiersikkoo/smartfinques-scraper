@@ -3,16 +3,20 @@ from bs4 import BeautifulSoup
 import requests
 import time
 
-BASE_DOMAIN = "https://www.inmuebles.smartfinques.com/"
+BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
 
 def scrape_properties():
     base_url = "https://www.inmuebles.smartfinques.com/?pag={}&idio=1#modulo-paginacion"
     propiedades = []
     page = 1
 
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
     while True:
         url = base_url.format(page)
-        response = requests.get(url)
+        response = requests.get(url, headers=headers, timeout=15)
         soup = BeautifulSoup(response.text, "html.parser")
 
         items = soup.select("div.paginacion-ficha-bloque1")
@@ -21,34 +25,60 @@ def scrape_properties():
 
         for item in items:
             try:
+                # ---------- PRECIO ----------
                 precio_tag = item.select_one(".paginacion-ficha-tituloprecio")
                 precio = precio_tag.text.strip() if precio_tag else None
 
-                link_tag = item.select_one("a.irAfichaPropiedad")
-                link = link_tag["href"].strip() if link_tag else None
+                # ---------- LINK A FICHA ----------
+                link = None
+                for a in item.find_all("a", href=True):
+                    if "/ficha/" in a["href"]:
+                        link = a["href"].strip()
+                        break
 
-                # Si no hay link, saltamos
                 if not link:
                     continue
 
                 full_link = BASE_DOMAIN + link
 
-                # ---- ENTRAMOS EN LA FICHA ----
-                detail_response = requests.get(full_link)
+                # ---------- ENTRAMOS EN LA FICHA ----------
+                detail_response = requests.get(full_link, headers=headers, timeout=15)
                 detail_soup = BeautifulSoup(detail_response.text, "html.parser")
 
-                referencia_tag = detail_soup.select_one(".ref")
-                referencia = referencia_tag.text.strip() if referencia_tag else None
+                # ---------- REFERENCIA (CORREGIDO) ----------
+                referencia = None
+                for li in detail_soup.find_all("li"):
+                    text = li.get_text(" ", strip=True)
+                    if "Referencia" in text:
+                        referencia = (
+                            text.replace("Referencia", "")
+                            .replace(":", "")
+                            .strip()
+                        )
+                        break
 
-                habitaciones_tag = detail_soup.select_one(".habitaciones")
-                habitaciones = habitaciones_tag.text.strip() if habitaciones_tag else None
+                # ---------- HABITACIONES ----------
+                habitaciones = None
+                for li in detail_soup.find_all("li"):
+                    if "Habitaciones" in li.get_text():
+                        habitaciones = li.get_text(" ", strip=True)
+                        break
 
-                banos_tag = detail_soup.select_one(".banyos")
-                banos = banos_tag.text.strip() if banos_tag else None
+                # ---------- BAÑOS ----------
+                banos = None
+                for li in detail_soup.find_all("li"):
+                    if "Baños" in li.get_text() or "Banyos" in li.get_text():
+                        banos = li.get_text(" ", strip=True)
+                        break
 
-                superficie_tag = detail_soup.select_one(".superficie")
-                superficie = superficie_tag.text.strip() if superficie_tag else None
+                # ---------- SUPERFICIE ----------
+                superficie = None
+                for li in detail_soup.find_all("li"):
+                    if "Superficie" in li.get_text():
+                        superficie = li.get_text(" ", strip=True)
+                        break
 
+                # ---------- DESCRIPCIÓN ----------
                 descripcion_tag = detail_soup.select_one(".descripcion")
                 descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
@@ -62,10 +92,10 @@ def scrape_properties():
                     "Descripcion": descripcion
                 })
 
-                time.sleep(0.3)  # pequeña pausa para no saturar
+                time.sleep(0.3)
 
             except Exception as e:
-                print("Error procesando propiedad:", e)
+                print("❌ Error procesando propiedad:", e)
 
         print(f"✅ Página {page} completada")
         page += 1
