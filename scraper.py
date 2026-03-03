@@ -4,8 +4,19 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import json
+import re
 
 BASE_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1#modulo-paginacion"
+BASE_DOMAIN = "https://www.inmuebles.smartfinques.com/"
+
+def extraer_dato_por_texto(soup, texto_label):
+    elementos = soup.find_all("li", class_="bloque-icono-name-valor1")
+    for el in elementos:
+        if texto_label.lower() in el.text.lower():
+            valor = el.find_all("span")[-1].text.strip()
+            return valor
+    return None
+
 
 def scrape_properties():
     propiedades = []
@@ -17,7 +28,6 @@ def scrape_properties():
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # 🔥 SOLO enlaces reales de propiedades
         items = soup.select("a.paginacion-ficha-masinfo")
 
         if not items:
@@ -25,47 +35,36 @@ def scrape_properties():
 
         for item in items:
             link = item.get("href")
-
             if not link:
                 continue
 
-            full_link = "https://www.inmuebles.smartfinques.com/" + link
+            full_link = BASE_DOMAIN + link
 
             try:
                 detail_response = requests.get(full_link)
                 detail_soup = BeautifulSoup(detail_response.text, "html.parser")
 
-                # 🔥 TÍTULO REAL
-                titulo_tag = detail_soup.select_one(".titulo1")
+                # 🔥 TÍTULO REAL (no el del slider)
+                titulo_tag = detail_soup.select_one("h1")
                 titulo = titulo_tag.text.strip() if titulo_tag else None
 
-                # 🔥 PRECIO REAL
-                precio_tag = detail_soup.select_one(".precio1")
+                # 🔥 PRECIO REAL (buscamos el que esté fuera del slider)
+                precio_tag = detail_soup.find("span", string=re.compile("€"))
                 precio = precio_tag.text.strip() if precio_tag else None
 
-                # 🔥 REFERENCIA
-                ref_tag = detail_soup.select_one(".ref")
-                referencia = ref_tag.text.strip() if ref_tag else None
-
-                # 🔥 HABITACIONES
-                habitaciones_tag = detail_soup.select_one(".habitaciones")
-                habitaciones = habitaciones_tag.text.strip() if habitaciones_tag else None
-
-                # 🔥 BAÑOS
-                banos_tag = detail_soup.select_one(".banyos")
-                banos = banos_tag.text.strip() if banos_tag else None
-
-                # 🔥 SUPERFICIE
-                superficie_tag = detail_soup.select_one(".superficie")
-                superficie = superficie_tag.text.strip() if superficie_tag else None
+                # 🔥 DATOS REALES POR TEXTO
+                referencia = extraer_dato_por_texto(detail_soup, "Referencia")
+                habitaciones = extraer_dato_por_texto(detail_soup, "Habitaciones")
+                banos = extraer_dato_por_texto(detail_soup, "Baños")
+                superficie = extraer_dato_por_texto(detail_soup, "Superficie")
 
                 # 🔥 DESCRIPCIÓN
-                descripcion_tag = detail_soup.select_one(".descripcion")
+                descripcion_tag = detail_soup.find("div", class_="descripcion")
                 descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
-                # 🔥 FOTO PRINCIPAL
-                foto_tag = detail_soup.select_one(".propiedad")
-                foto = foto_tag.get("cargaFoto") if foto_tag else None
+                # 🔥 FOTO REAL (no slider)
+                foto_tag = detail_soup.find("img", {"itemprop": "image"})
+                foto = foto_tag["src"] if foto_tag else None
 
                 propiedades.append({
                     "referencia": referencia,
@@ -88,7 +87,6 @@ def scrape_properties():
 
     print(f"✅ Se han scrapeado {len(propiedades)} inmuebles")
 
-    # Guardar cache
     with open("cache.json", "w", encoding="utf-8") as f:
         json.dump({"data": propiedades}, f, ensure_ascii=False)
 
@@ -97,7 +95,6 @@ def scrape_properties():
 
 def export_to_csv(data):
     import csv
-
     keys = data[0].keys() if data else []
 
     with open("properties.csv", "w", newline="", encoding="utf-8") as output_file:
