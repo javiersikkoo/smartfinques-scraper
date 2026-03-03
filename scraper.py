@@ -4,115 +4,113 @@ import json
 import csv
 import time
 
-BASE_URL = "https://www.inmuebles.smartfinques.com/ficha/"
+BASE_URL = "https://www.inmuebles.smartfinques.com"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                  "AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/116.0.0.0 Safari/537.36"
-}
+def normalize_url(url):
+    """Convierte rutas relativas en URLs completas"""
+    if url.startswith("/"):
+        return BASE_URL + url
+    elif not url.startswith("http"):
+        return BASE_URL + "/" + url
+    return url
 
 def scrape_property(url):
-    """Extrae toda la información de una propiedad individual"""
-    resp = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(resp.text, "html.parser")
+    url = normalize_url(url)
+    try:
+        res = requests.get(url, timeout=10)
+        res.raise_for_status()
+    except Exception as e:
+        print(f"Error scrapeando {url}: {e}")
+        return None
 
-    # Referencia
-    ref = soup.select_one("#fichapropiedad-bloquecaracteristicas .fichapropiedad-listadatos li span.valor")
-    referencia = ref.get_text(strip=True) if ref else None
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    # Características principales
-    datos = {}
-    for li in soup.select("#fichapropiedad-bloquecaracteristicas .fichapropiedad-listadatos li"):
-        key = li.select_one("span.caracteristica")
-        val = li.select_one("span.valor")
-        if key and val:
-            datos[key.get_text(strip=True).lower()] = val.get_text(strip=True)
+    # Extraer datos principales
+    referencia = soup.select_one(".fichapropiedad-listadatos li span.valor")
+    referencia = referencia.get_text(strip=True) if referencia else None
 
-    habitaciones = datos.get("habitaciones")
-    banos = datos.get("baños") or datos.get("aseos")  # a veces llaman así
-    superficie = datos.get("superficie construida") or datos.get("superficie útil")
-    precio_tag = soup.select_one("#slider-estrella-tituloprecio .precio1")
-    precio = precio_tag.get_text(strip=True) if precio_tag else None
+    habitaciones = soup.select_one(".fichapropiedad-listadatos li span.valor:contains('Habitaciones')")  # fallback
+    # intentar otra forma
+    hab_tag = soup.find("li", text=lambda t: t and "Habitaciones" in t)
+    if hab_tag:
+        habitaciones = hab_tag.find_next("span").get_text(strip=True)
+    else:
+        habitaciones = None
 
-    # Fotos
-    fotos = []
-    for img in soup.select("img"):
-        src = img.get("src")
-        if src and "fotos" in src:
-            fotos.append(src)
-    fotos_str = ", ".join(fotos) if fotos else None
+    banos = None
+    banos_tag = soup.find("li", text=lambda t: t and "Baños" in t)
+    if banos_tag:
+        banos = banos_tag.find_next("span").get_text(strip=True)
 
-    # Título / descripción
-    titulo_tag = soup.select_one("#slider-estrella-tituloprecio .titulo1")
+    precio = soup.select_one(".precio1")
+    precio = precio.get_text(strip=True) if precio else None
+
+    superficie_tag = soup.find("span", class_="superficie")
+    superficie = superficie_tag.get_text(strip=True) if superficie_tag else None
+
+    foto_tag = soup.find("article", class_="fotosAlVuelo")
+    foto = foto_tag.get("cargaFoto") if foto_tag else None
+
+    titulo_tag = soup.select_one("#slider-estrella-tituloprecio h1")
     titulo = titulo_tag.get_text(strip=True) if titulo_tag else None
-    descripcion_tag = soup.select_one(".fichapropiedad-descripcion")
-    descripcion = descripcion_tag.get_text(strip=True) if descripcion_tag else None
+
+    descripcion_tag = soup.find("meta", {"name": "description"})
+    descripcion = descripcion_tag["content"] if descripcion_tag else None
 
     return {
         "referencia": referencia,
-        "precio": precio,
-        "habitaciones": habitaciones,
-        "banos": banos,
-        "superficie": superficie,
         "titulo": titulo,
         "descripcion": descripcion,
-        "foto": fotos_str,
+        "foto": foto,
+        "habitaciones": habitaciones,
+        "banos": banos,
+        "precio": precio,
+        "superficie": superficie,
         "url": url
     }
 
-def scrape_all_properties(start_url):
-    """Scrapea todas las propiedades de la paginación"""
-    properties = []
-    next_page = start_url
-    page_number = 1
+def scrape_properties(pages=1, delay=1):
+    all_props = []
 
-    while next_page:
-        print(f"Scrapeando página {page_number}...")
-        resp = requests.get(next_page, headers=HEADERS)
-        soup = BeautifulSoup(resp.text, "html.parser")
+    for page in range(1, pages + 1):
+        print(f"Scrapeando página {page}...")
+        url = f"{BASE_URL}/listado/?page={page}"
+        try:
+            res = requests.get(url, timeout=10)
+            res.raise_for_status()
+        except Exception as e:
+            print(f"Error scrapeando listado página {page}: {e}")
+            continue
 
-        # Extraer URLs de las propiedades desde onclick
+        soup = BeautifulSoup(res.text, "html.parser")
         links = []
-        for art in soup.select("article.propiedad"):
-            onclick = art.get("onclick")
-            if onclick and "window.location.href='" in onclick:
-                url = onclick.split("window.location.href='")[1].split("'")[0]
-                if url.startswith("/"):
-                    url = "https://www.inmuebles.smartfinques.com" + url
-                links.append(url)
 
-        if not links:
-            print("No se encontraron propiedades en esta página.")
-            break
+        # Buscar todas las propiedades
+        for a in soup.select("article a"):
+            href = a.get("href")
+            if href:
+                links.append(normalize_url(href))
+
+        print(f"Encontradas {len(links)} propiedades en la página {page}")
 
         for link in links:
-            try:
-                prop = scrape_property(link)
-                properties.append(prop)
-            except Exception as e:
-                print(f"Error scrapeando {link}: {e}")
-            time.sleep(0.5)  # para no sobrecargar el servidor
+            prop = scrape_property(link)
+            if prop:
+                all_props.append(prop)
+            time.sleep(delay)
 
-        # Paginación
-        next_button = soup.select_one("a.next")
-        if next_button and next_button.get("href"):
-            next_page = "https://www.inmuebles.smartfinques.com" + next_button.get("href")
-            page_number += 1
-        else:
-            next_page = None
+    return all_props
 
-    return properties
-
-def export_to_json(properties, filename="propiedades.json"):
-    with open(filename, "w", encoding="utf-8") as f:
+def export_properties(properties):
+    # JSON
+    with open("propiedades.json", "w", encoding="utf-8") as f:
         json.dump(properties, f, ensure_ascii=False, indent=2)
 
-def export_to_csv(properties, filename="propiedades.csv"):
-    if not properties:
-        return
-    keys = properties[0].keys()
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=keys)
-        writer.writeheader()
-        writer.writerows(properties)
+    # CSV
+    if properties:
+        keys = properties[0].keys()
+        with open("propiedades.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=keys)
+            writer.writeheader()
+            for p in properties:
+                writer.writerow(p)
