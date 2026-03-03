@@ -1,131 +1,106 @@
 # scraper.py
+
 import requests
+from bs4 import BeautifulSoup
 import time
 import json
-import csv
-import os
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-from datetime import datetime, timedelta
 
-BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
-CACHE_FILE = "cache.json"
-CACHE_HOURS = 6
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-def cache_is_valid():
-    if not os.path.exists(CACHE_FILE):
-        return False
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
-        cache = json.load(f)
-    timestamp = datetime.fromisoformat(cache["timestamp"])
-    return datetime.now() - timestamp < timedelta(hours=CACHE_HOURS)
-
-def load_cache():
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)["data"]
-
-def save_cache(data):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump({
-            "timestamp": datetime.now().isoformat(),
-            "data": data
-        }, f, ensure_ascii=False, indent=2)
+BASE_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1#modulo-paginacion"
 
 def scrape_properties():
-    if cache_is_valid():
-        print("🧠 Usando cache")
-        return load_cache()
-
     propiedades = []
     page = 1
 
     while True:
-        url = f"{BASE_DOMAIN}/venta/?pag={page}&idio=1"
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        print(f"Scrapeando página {page}...")
+        url = BASE_URL.format(page)
+        response = requests.get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        if resp.status_code != 200:
-            break
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        items = soup.select("div.paginacion-ficha-datos")
+        # 🔥 SOLO enlaces reales de propiedades
+        items = soup.select("a.paginacion-ficha-masinfo")
 
         if not items:
             break
 
-        print(f"🔎 Página {page}: {len(items)} inmuebles")
-
         for item in items:
+            link = item.get("href")
+
+            if not link:
+                continue
+
+            full_link = "https://www.inmuebles.smartfinques.com/" + link
+
             try:
-                link_tag = item.select_one("a.paginacion-ficha-masinfo")
-                if not link_tag:
-                    continue
+                detail_response = requests.get(full_link)
+                detail_soup = BeautifulSoup(detail_response.text, "html.parser")
 
-                ficha_url = urljoin(BASE_DOMAIN, link_tag["href"])
-                ficha_resp = requests.get(ficha_url, headers=HEADERS, timeout=15)
-                ficha = BeautifulSoup(ficha_resp.text, "html.parser")
-
-                # -------- TÍTULO --------
-                titulo_tag = ficha.select_one("h1")
+                # 🔥 TÍTULO REAL
+                titulo_tag = detail_soup.select_one(".titulo1")
                 titulo = titulo_tag.text.strip() if titulo_tag else None
 
-                # -------- PRECIO --------
-                precio = None
-                precio_tag = ficha.select_one(".precio, .price, .precioVenta")
-                if precio_tag:
-                    precio = precio_tag.text.strip()
+                # 🔥 PRECIO REAL
+                precio_tag = detail_soup.select_one(".precio1")
+                precio = precio_tag.text.strip() if precio_tag else None
 
-                # -------- CARACTERÍSTICAS --------
-                habitaciones = banos = superficie = None
-                for li in ficha.select("li"):
-                    text = li.get_text(" ", strip=True)
-                    if "Habitaciones" in text:
-                        habitaciones = text.replace("Habitaciones", "").strip()
-                    if "Baños" in text:
-                        banos = text.replace("Baños", "").strip()
-                    if "Superficie" in text:
-                        superficie = text.replace("Superficie", "").strip()
+                # 🔥 REFERENCIA
+                ref_tag = detail_soup.select_one(".ref")
+                referencia = ref_tag.text.strip() if ref_tag else None
 
-                # -------- DESCRIPCIÓN --------
-                descripcion_tag = ficha.select_one(".descripcion")
+                # 🔥 HABITACIONES
+                habitaciones_tag = detail_soup.select_one(".habitaciones")
+                habitaciones = habitaciones_tag.text.strip() if habitaciones_tag else None
+
+                # 🔥 BAÑOS
+                banos_tag = detail_soup.select_one(".banyos")
+                banos = banos_tag.text.strip() if banos_tag else None
+
+                # 🔥 SUPERFICIE
+                superficie_tag = detail_soup.select_one(".superficie")
+                superficie = superficie_tag.text.strip() if superficie_tag else None
+
+                # 🔥 DESCRIPCIÓN
+                descripcion_tag = detail_soup.select_one(".descripcion")
                 descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
-                # -------- FOTOS (SOLO GALERÍA) --------
-                fotos = []
-                for img in ficha.select(".galeria img, .swiper img"):
-                    src = img.get("src")
-                    if src and "nofotos" not in src:
-                        fotos.append(urljoin(BASE_DOMAIN, src))
+                # 🔥 FOTO PRINCIPAL
+                foto_tag = detail_soup.select_one(".propiedad")
+                foto = foto_tag.get("cargaFoto") if foto_tag else None
 
                 propiedades.append({
+                    "referencia": referencia,
                     "titulo": titulo,
                     "precio": precio,
                     "habitaciones": habitaciones,
                     "banos": banos,
                     "superficie": superficie,
                     "descripcion": descripcion,
-                    "url": ficha_url,
-                    "fotos": "|".join(fotos)
+                    "foto": foto,
+                    "url": full_link
                 })
 
                 time.sleep(0.3)
 
             except Exception as e:
-                print("❌ Error:", e)
+                print("Error:", e)
 
         page += 1
 
-    save_cache(propiedades)
-    print(f"📦 Se han scrapeado {len(propiedades)} inmuebles")
+    print(f"✅ Se han scrapeado {len(propiedades)} inmuebles")
+
+    # Guardar cache
+    with open("cache.json", "w", encoding="utf-8") as f:
+        json.dump({"data": propiedades}, f, ensure_ascii=False)
+
     return propiedades
 
+
 def export_to_csv(data):
-    if not data:
-        return
-    with open("properties.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=data[0].keys())
-        writer.writeheader()
-        writer.writerows(data)
+    import csv
+
+    keys = data[0].keys() if data else []
+
+    with open("properties.csv", "w", newline="", encoding="utf-8") as output_file:
+        dict_writer = csv.DictWriter(output_file, fieldnames=keys)
+        dict_writer.writeheader()
+        dict_writer.writerows(data)
