@@ -1,25 +1,19 @@
 # main.py
-from flask import Flask, jsonify
-from scraper import scrape_properties
-from cache import is_cache_valid, load_cache, save_cache
+from flask import Flask, jsonify, send_file
+from scraper import scrape_properties, export_to_csv
 
 app = Flask(__name__)
 
-@app.route("/properties", methods=["GET"])
+@app.route("/properties")
 def properties():
-    if is_cache_valid():
-        print("⚡ Sirviendo datos desde cache")
-        return jsonify(load_cache())
-
-    print("♻️ Cache inválida, scrapeando...")
     data = scrape_properties()
-    save_cache(data)
+    export_to_csv(data)
     return jsonify(data)
 
-@app.route("/health", methods=["GET"])
-def health():
-    return jsonify({"status": "ok"})
+@app.route("/download-csv")
+def download_csv():
+    return send_file("properties.csv", as_attachment=True)
 
 if __name__ == "__main__":
-    print("🚀 Backend Smartfinques iniciado")
+    print("🚀 Servidor iniciado")
     app.run(host="0.0.0.0", port=10000)
