@@ -44,7 +44,7 @@ def scrape_properties():
     page = 1
 
     while True:
-        url = f"https://www.inmuebles.smartfinques.com/venta/?pag={page}&idio=1"
+        url = f"{BASE_DOMAIN}/venta/?pag={page}&idio=1"
         resp = requests.get(url, headers=HEADERS, timeout=15)
 
         if resp.status_code != 200:
@@ -68,28 +68,37 @@ def scrape_properties():
                 ficha_resp = requests.get(ficha_url, headers=HEADERS, timeout=15)
                 ficha = BeautifulSoup(ficha_resp.text, "html.parser")
 
-                titulo = ficha.select_one("h1")
-                titulo = titulo.text.strip() if titulo else None
+                # -------- TÍTULO --------
+                titulo_tag = ficha.select_one("h1")
+                titulo = titulo_tag.text.strip() if titulo_tag else None
 
+                # -------- PRECIO --------
                 precio = None
-                for div in ficha.find_all("div"):
-                    if "€" in div.get_text():
-                        precio = div.get_text(strip=True)
-                        break
+                precio_tag = ficha.select_one(".precio, .price, .precioVenta")
+                if precio_tag:
+                    precio = precio_tag.text.strip()
 
-                descripcion = ficha.select_one(".descripcion")
-                descripcion = descripcion.text.strip() if descripcion else None
+                # -------- CARACTERÍSTICAS --------
+                habitaciones = banos = superficie = None
+                for li in ficha.select("li"):
+                    text = li.get_text(" ", strip=True)
+                    if "Habitaciones" in text:
+                        habitaciones = text.replace("Habitaciones", "").strip()
+                    if "Baños" in text:
+                        banos = text.replace("Baños", "").strip()
+                    if "Superficie" in text:
+                        superficie = text.replace("Superficie", "").strip()
 
-                fotos = [
-                    urljoin(BASE_DOMAIN, img["src"])
-                    for img in ficha.select("img")
-                    if img.get("src") and "nofotos" not in img["src"]
-                ]
+                # -------- DESCRIPCIÓN --------
+                descripcion_tag = ficha.select_one(".descripcion")
+                descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
-                texto = ficha.get_text(" ", strip=True)
-                habitaciones = next((w for w in texto.split() if "habit" in w.lower()), None)
-                banos = next((w for w in texto.split() if "bañ" in w.lower()), None)
-                superficie = next((w for w in texto.split() if "m²" in w.lower()), None)
+                # -------- FOTOS (SOLO GALERÍA) --------
+                fotos = []
+                for img in ficha.select(".galeria img, .swiper img"):
+                    src = img.get("src")
+                    if src and "nofotos" not in src:
+                        fotos.append(urljoin(BASE_DOMAIN, src))
 
                 propiedades.append({
                     "titulo": titulo,
@@ -114,6 +123,8 @@ def scrape_properties():
     return propiedades
 
 def export_to_csv(data):
+    if not data:
+        return
     with open("properties.csv", "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=data[0].keys())
         writer.writeheader()
