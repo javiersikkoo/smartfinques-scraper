@@ -14,6 +14,8 @@ def scrape_properties():
     propiedades = []
     page = 1
 
+    print("🚀 Iniciando scraping de inmuebles...")
+
     while True:
         url = f"https://www.inmuebles.smartfinques.com/venta/?pag={page}&idio=1"
         response = requests.get(url, headers=HEADERS, timeout=15)
@@ -22,8 +24,8 @@ def scrape_properties():
             break
 
         soup = BeautifulSoup(response.text, "html.parser")
-
         items = soup.select("div.paginacion-ficha-datos")
+
         if not items:
             break
 
@@ -31,45 +33,62 @@ def scrape_properties():
 
         for item in items:
             try:
-                # ---------- LINK A LA FICHA ----------
                 link_tag = item.select_one("a.paginacion-ficha-masinfo")
-                if not link_tag or not link_tag.get("href"):
+                if not link_tag:
                     continue
 
                 ficha_url = urljoin(BASE_DOMAIN, link_tag["href"])
-
-                # ---------- ENTRAMOS EN LA FICHA ----------
                 ficha_resp = requests.get(ficha_url, headers=HEADERS, timeout=15)
                 ficha_soup = BeautifulSoup(ficha_resp.text, "html.parser")
 
-                # ---------- TÍTULO ----------
-                titulo_tag = ficha_soup.select_one("h1")
-                titulo = titulo_tag.text.strip() if titulo_tag else None
+                # -------- TÍTULO --------
+                titulo = ficha_soup.select_one("h1").get_text(strip=True)
 
-                # ---------- REFERENCIA ----------
+                # -------- REFERENCIA --------
                 referencia = None
+                habitaciones = None
+                banos = None
+                superficie = None
+
                 for li in ficha_soup.find_all("li"):
                     text = li.get_text(" ", strip=True)
+
                     if "Referencia" in text:
                         referencia = text.replace("Referencia", "").replace(":", "").strip()
-                        break
+                    elif "Habitaciones" in text:
+                        habitaciones = text
+                    elif "Baños" in text or "Banyos" in text:
+                        banos = text
+                    elif "Superficie" in text:
+                        superficie = text
 
-                # ---------- PRECIO ----------
+                # -------- PRECIO --------
                 precio = None
                 for div in ficha_soup.find_all("div"):
                     if "€" in div.get_text():
                         precio = div.get_text(" ", strip=True)
                         break
 
-                # ---------- DESCRIPCIÓN ----------
+                # -------- DESCRIPCIÓN --------
                 descripcion_tag = ficha_soup.select_one(".descripcion")
-                descripcion = descripcion_tag.text.strip() if descripcion_tag else None
+                descripcion = descripcion_tag.get_text(strip=True) if descripcion_tag else None
+
+                # -------- FOTOS --------
+                fotos = []
+                for img in ficha_soup.select("img"):
+                    src = img.get("src")
+                    if src and "uploads" in src:
+                        fotos.append(urljoin(BASE_DOMAIN, src))
 
                 propiedades.append({
                     "Referencia": referencia,
                     "Titulo": titulo,
                     "Precio": precio,
+                    "Habitaciones": habitaciones,
+                    "Baños": banos,
+                    "Superficie": superficie,
                     "Descripcion": descripcion,
+                    "Fotos": fotos,
                     "URL": ficha_url
                 })
 
