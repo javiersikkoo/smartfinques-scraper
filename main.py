@@ -1,34 +1,14 @@
 # main.py
-
-from flask import Flask, jsonify
-from scraper import scrape_properties
-import json
-import os
-
-app = Flask(__name__)
-
-CACHE_FILE = "cache.json"
-
-
-@app.route("/scrape", methods=["GET"])
-def scrape():
-    data = scrape_properties()
-    return jsonify({
-        "message": f"Se han scrapeado {len(data)} inmuebles"
-    })
-
-
-@app.route("/properties", methods=["GET"])
-def get_properties():
-    if not os.path.exists(CACHE_FILE):
-        return jsonify([])
-
-    with open(CACHE_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    return jsonify(data.get("data", []))
-
+from scraper import scrape_all_properties, export_to_json
 
 if __name__ == "__main__":
-    print("🚀 Servidor iniciado")
-    app.run(host="0.0.0.0", port=10000)
+    # URL del listado principal de propiedades
+    listado_url = "https://www.inmuebles.smartfinques.com/listado-de-propiedades/"
+
+    # Scrapea todas las propiedades con paginación
+    propiedades = scrape_all_properties(listado_url)
+
+    # Exporta los resultados a JSON
+    export_to_json(propiedades, filename="propiedades.json")
+
+    print(f"Se han scrapeado {len(propiedades)} propiedades. Archivo 'propiedades.json' generado.")
