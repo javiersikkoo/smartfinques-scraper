@@ -80,5 +80,9 @@ def scrape_properties():
 
         page += 1
 
-    print(f"🚀 Scraping completado. Total inmuebles: {len(propiedades)}")
+    total = len(propiedades)
+    print("===================================")
+    print(f"📦 Se han scrapeado {total} inmuebles")
+    print("===================================")
+
     return propiedades
