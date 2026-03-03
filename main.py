@@ -1,34 +1,34 @@
 # main.py
-import os
+
+from flask import Flask, jsonify
+from scraper import scrape_properties
 import json
-from flask import Flask, jsonify, send_file
-from scraper import scrape_properties, export_to_csv
+import os
 
 app = Flask(__name__)
 
-@app.route("/scrape")
-def run_scrape():
-    data = scrape_properties()
-    export_to_csv(data)
-    return {"status": "ok", "total": len(data)}
+CACHE_FILE = "cache.json"
 
-@app.route("/properties")
-def properties():
-    if not os.path.exists("cache.json"):
+
+@app.route("/scrape", methods=["GET"])
+def scrape():
+    data = scrape_properties()
+    return jsonify({
+        "message": f"Se han scrapeado {len(data)} inmuebles"
+    })
+
+
+@app.route("/properties", methods=["GET"])
+def get_properties():
+    if not os.path.exists(CACHE_FILE):
         return jsonify([])
 
-    with open("cache.json", "r", encoding="utf-8") as f:
-        data = json.load(f)["data"]
+    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    return jsonify(data)
+    return jsonify(data.get("data", []))
 
-@app.route("/download-csv")
-def download_csv():
-    if not os.path.exists("properties.csv"):
-        return {"error": "CSV no generado aún"}, 404
-    return send_file("properties.csv", as_attachment=True)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # 🔥 ESTA ES LA CLAVE
-    print(f"🚀 Servidor iniciado en puerto {port}")
-    app.run(host="0.0.0.0", port=port)
+    print("🚀 Servidor iniciado")
+    app.run(host="0.0.0.0", port=10000)
