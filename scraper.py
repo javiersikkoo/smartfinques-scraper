@@ -4,18 +4,30 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import json
-import re
 
 BASE_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1#modulo-paginacion"
 BASE_DOMAIN = "https://www.inmuebles.smartfinques.com/"
 
-def extraer_dato_por_texto(soup, texto_label):
-    elementos = soup.find_all("li", class_="bloque-icono-name-valor1")
-    for el in elementos:
-        if texto_label.lower() in el.text.lower():
-            valor = el.find_all("span")[-1].text.strip()
-            return valor
-    return None
+HEADERS = {
+    "User-Agent": "Mozilla/5.0"
+}
+
+
+def extraer_caracteristicas(detail_soup):
+    caracteristicas = {}
+
+    items = detail_soup.select("ul.fichapropiedad-listadatos li")
+
+    for li in items:
+        clave = li.select_one(".caracteristica")
+        valor = li.select_one(".valor")
+
+        if clave and valor:
+            key = clave.text.strip()
+            value = valor.text.strip()
+            caracteristicas[key] = value
+
+    return caracteristicas
 
 
 def scrape_properties():
@@ -25,7 +37,8 @@ def scrape_properties():
     while True:
         print(f"Scrapeando página {page}...")
         url = BASE_URL.format(page)
-        response = requests.get(url)
+
+        response = requests.get(url, headers=HEADERS)
         soup = BeautifulSoup(response.text, "html.parser")
 
         items = soup.select("a.paginacion-ficha-masinfo")
@@ -41,30 +54,36 @@ def scrape_properties():
             full_link = BASE_DOMAIN + link
 
             try:
-                detail_response = requests.get(full_link)
+                detail_response = requests.get(full_link, headers=HEADERS)
                 detail_soup = BeautifulSoup(detail_response.text, "html.parser")
 
-                # 🔥 TÍTULO REAL (no el del slider)
+                # 🔥 Título real
                 titulo_tag = detail_soup.select_one("h1")
                 titulo = titulo_tag.text.strip() if titulo_tag else None
 
-                # 🔥 PRECIO REAL (buscamos el que esté fuera del slider)
-                precio_tag = detail_soup.find("span", string=re.compile("€"))
+                # 🔥 Precio real
+                precio_tag = detail_soup.select_one(".precio")
                 precio = precio_tag.text.strip() if precio_tag else None
 
-                # 🔥 DATOS REALES POR TEXTO
-                referencia = extraer_dato_por_texto(detail_soup, "Referencia")
-                habitaciones = extraer_dato_por_texto(detail_soup, "Habitaciones")
-                banos = extraer_dato_por_texto(detail_soup, "Baños")
-                superficie = extraer_dato_por_texto(detail_soup, "Superficie")
+                # 🔥 Extraemos características reales
+                caracteristicas = extraer_caracteristicas(detail_soup)
 
-                # 🔥 DESCRIPCIÓN
-                descripcion_tag = detail_soup.find("div", class_="descripcion")
+                referencia = caracteristicas.get("Referencia")
+                habitaciones = caracteristicas.get("Habitaciones")
+                banos = caracteristicas.get("Baños")
+
+                superficie = (
+                    caracteristicas.get("Superficie Construida")
+                    or caracteristicas.get("Superficie Útil")
+                )
+
+                # 🔥 Descripción
+                descripcion_tag = detail_soup.select_one(".fichapropiedad-descripcion")
                 descripcion = descripcion_tag.text.strip() if descripcion_tag else None
 
-                # 🔥 FOTO REAL (no slider)
-                foto_tag = detail_soup.find("img", {"itemprop": "image"})
-                foto = foto_tag["src"] if foto_tag else None
+                # 🔥 Foto principal (si existe)
+                foto_tag = detail_soup.select_one(".imagenesComoBackground")
+                foto = foto_tag.get("cargaFoto") if foto_tag else None
 
                 propiedades.append({
                     "referencia": referencia,
@@ -81,23 +100,14 @@ def scrape_properties():
                 time.sleep(0.3)
 
             except Exception as e:
-                print("Error:", e)
+                print("Error procesando propiedad:", e)
 
         page += 1
 
     print(f"✅ Se han scrapeado {len(propiedades)} inmuebles")
 
+    # Guardamos cache
     with open("cache.json", "w", encoding="utf-8") as f:
         json.dump({"data": propiedades}, f, ensure_ascii=False)
 
     return propiedades
-
-
-def export_to_csv(data):
-    import csv
-    keys = data[0].keys() if data else []
-
-    with open("properties.csv", "w", newline="", encoding="utf-8") as output_file:
-        dict_writer = csv.DictWriter(output_file, fieldnames=keys)
-        dict_writer.writeheader()
-        dict_writer.writerows(data)
