@@ -1,8 +1,8 @@
 # main.py
-from flask import Flask, jsonify, send_file
-from scraper import scrape_properties, export_to_csv, load_cache
 import os
 import json
+from flask import Flask, jsonify, send_file
+from scraper import scrape_properties, export_to_csv
 
 app = Flask(__name__)
 
@@ -29,5 +29,6 @@ def download_csv():
     return send_file("properties.csv", as_attachment=True)
 
 if __name__ == "__main__":
-    print("🚀 Servidor iniciado")
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))  # 🔥 ESTA ES LA CLAVE
+    print(f"🚀 Servidor iniciado en puerto {port}")
+    app.run(host="0.0.0.0", port=port)
