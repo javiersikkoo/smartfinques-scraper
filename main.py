@@ -1,12 +1,13 @@
-from scraper import scrape_all_properties, export_to_json, export_to_csv
-
-START_URL = "https://www.inmuebles.smartfinques.com/busqueda/propiedades"  # URL de listado principal
+from scraper import scrape_properties, export_properties
 
 def main():
-    propiedades = scrape_all_properties(START_URL)
-    print(f"Se han scrapeado {len(propiedades)} propiedades.")
-    export_to_json(propiedades)
-    export_to_csv(propiedades)
+    total_pages = 12  # Cambia esto según cuántas páginas quieras scrapear
+    print(f"Total páginas a scrapeear: {total_pages}")
+
+    properties = scrape_properties(pages=total_pages, delay=1)
+    print(f"Se han scrapeado {len(properties)} propiedades.")
+
+    export_properties(properties)
     print("Archivos 'propiedades.json' y 'propiedades.csv' generados.")
 
 if __name__ == "__main__":
