@@ -10,5 +10,5 @@ def get_properties():
     return jsonify(properties)
 
 if __name__ == "__main__":
-    print("🚀 Iniciando scraping y servidor...")
+    print("🚀 Iniciando servidor y scraping bajo demanda...")
     app.run(host="0.0.0.0", port=10000)
