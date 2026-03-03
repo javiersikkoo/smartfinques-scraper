@@ -5,16 +5,13 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
 BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 def scrape_properties():
     propiedades = []
     page = 1
 
-    print("🚀 Iniciando scraping de inmuebles...")
+    print("🚀 Iniciando scraping de Smartfinques")
 
     while True:
         url = f"https://www.inmuebles.smartfinques.com/venta/?pag={page}&idio=1"
@@ -39,22 +36,18 @@ def scrape_properties():
 
                 ficha_url = urljoin(BASE_DOMAIN, link_tag["href"])
                 ficha_resp = requests.get(ficha_url, headers=HEADERS, timeout=15)
-                ficha_soup = BeautifulSoup(ficha_resp.text, "html.parser")
+                ficha = BeautifulSoup(ficha_resp.text, "html.parser")
 
-                # -------- TÍTULO --------
-                titulo = ficha_soup.select_one("h1").get_text(strip=True)
+                # Título
+                titulo = ficha.select_one("h1").get_text(strip=True)
 
-                # -------- REFERENCIA --------
-                referencia = None
-                habitaciones = None
-                banos = None
-                superficie = None
+                # Campos básicos
+                referencia = habitaciones = banos = superficie = None
 
-                for li in ficha_soup.find_all("li"):
+                for li in ficha.find_all("li"):
                     text = li.get_text(" ", strip=True)
-
                     if "Referencia" in text:
-                        referencia = text.replace("Referencia", "").replace(":", "").strip()
+                        referencia = text.split(":")[-1].strip()
                     elif "Habitaciones" in text:
                         habitaciones = text
                     elif "Baños" in text or "Banyos" in text:
@@ -62,46 +55,45 @@ def scrape_properties():
                     elif "Superficie" in text:
                         superficie = text
 
-                # -------- PRECIO --------
+                # Precio
                 precio = None
-                for div in ficha_soup.find_all("div"):
+                for div in ficha.find_all("div"):
                     if "€" in div.get_text():
                         precio = div.get_text(" ", strip=True)
                         break
 
-                # -------- DESCRIPCIÓN --------
-                descripcion_tag = ficha_soup.select_one(".descripcion")
+                # Descripción
+                descripcion_tag = ficha.select_one(".descripcion")
                 descripcion = descripcion_tag.get_text(strip=True) if descripcion_tag else None
 
-                # -------- FOTOS --------
+                # Fotos
                 fotos = []
-                for img in ficha_soup.select("img"):
+                for img in ficha.select("img"):
                     src = img.get("src")
                     if src and "uploads" in src:
                         fotos.append(urljoin(BASE_DOMAIN, src))
 
                 propiedades.append({
-                    "Referencia": referencia,
-                    "Titulo": titulo,
-                    "Precio": precio,
-                    "Habitaciones": habitaciones,
-                    "Baños": banos,
-                    "Superficie": superficie,
-                    "Descripcion": descripcion,
-                    "Fotos": fotos,
-                    "URL": ficha_url
+                    "referencia": referencia,
+                    "titulo": titulo,
+                    "precio_texto": precio,
+                    "habitaciones": habitaciones,
+                    "banos": banos,
+                    "superficie": superficie,
+                    "descripcion": descripcion,
+                    "fotos": fotos,
+                    "url": ficha_url
                 })
 
                 time.sleep(0.3)
 
             except Exception as e:
-                print("❌ Error procesando ficha:", e)
+                print("❌ Error en ficha:", e)
 
         page += 1
 
-    total = len(propiedades)
     print("===================================")
-    print(f"📦 Se han scrapeado {total} inmuebles")
+    print(f"📦 Se han scrapeado {len(propiedades)} inmuebles")
     print("===================================")
 
     return propiedades
