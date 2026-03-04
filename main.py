@@ -1,14 +1,18 @@
-from scraper import scrape_properties, export_properties
+# main.py
+from scraper import scrape_properties
+import json
+import csv
 
-def main():
-    total_pages = 12  # Cambia esto según cuántas páginas quieras scrapear
-    print(f"Total páginas a scrapeear: {total_pages}")
+def export(properties):
+    with open("propiedades.json", "w", encoding="utf-8") as f:
+        json.dump(properties, f, ensure_ascii=False, indent=2)
 
-    properties = scrape_properties(pages=total_pages, delay=1)
-    print(f"Se han scrapeado {len(properties)} propiedades.")
-
-    export_properties(properties)
-    print("Archivos 'propiedades.json' y 'propiedades.csv' generados.")
+    if properties:
+        with open("propiedades.csv", "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=properties[0].keys())
+            writer.writeheader()
+            writer.writerows(properties)
 
 if __name__ == "__main__":
-    main()
+    props = scrape_properties(max_pages=20)
+    export(props)
