@@ -14,6 +14,22 @@ def normalize_url(url):
         return url
     return BASE_URL + "/" + url.lstrip("/")
 
+def extract_features(soup):
+    data = {}
+    ul = soup.select_one("ul.fichapropiedad-listadatos")
+
+    if not ul:
+        return data
+
+    for li in ul.find_all("li"):
+        spans = li.find_all("span")
+        if len(spans) >= 2:
+            key = spans[0].get_text(strip=True).lower()
+            value = spans[1].get_text(strip=True)
+            data[key] = value
+
+    return data
+
 def scrape_property(url):
     try:
         r = requests.get(url, headers=HEADERS, timeout=10)
@@ -23,14 +39,20 @@ def scrape_property(url):
 
     soup = BeautifulSoup(r.text, "html.parser")
 
-    titulo = soup.select_one("h1.titulo")
-    precio = soup.select_one(".precio")
-    descripcion = soup.find("meta", {"name": "description"})
+    titulo_tag = soup.select_one("#slider-estrella-tituloprecio")
+    precio_tag = soup.select_one(".precio1")
+    descripcion_tag = soup.find("meta", {"name": "description"})
+
+    features = extract_features(soup)
 
     return {
-        "titulo": titulo.get_text(strip=True) if titulo else None,
-        "precio": precio.get_text(strip=True) if precio else None,
-        "descripcion": descripcion["content"] if descripcion else None,
+        "referencia": features.get("referencia"),
+        "titulo": titulo_tag.get_text(strip=True) if titulo_tag else None,
+        "precio": precio_tag.get_text(strip=True) if precio_tag else None,
+        "habitaciones": features.get("habitaciones"),
+        "baños": features.get("baños"),
+        "superficie": features.get("superficie construida"),
+        "descripcion": descripcion_tag["content"] if descripcion_tag else None,
         "url": url
     }
 
@@ -44,8 +66,7 @@ def scrape_properties(pages=1, delay=1):
         try:
             r = requests.get(url, headers=HEADERS, timeout=10)
             r.raise_for_status()
-        except Exception as e:
-            print("Error:", e)
+        except:
             continue
 
         soup = BeautifulSoup(r.text, "html.parser")
