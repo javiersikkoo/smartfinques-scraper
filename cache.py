@@ -1,0 +1,19 @@
+import json
+import os
+import time
+
+CACHE_FILE = "properties_cache.json"
+CACHE_TTL = 60 * 30  # 30 minutos
+
+def is_cache_valid():
+    if not os.path.exists(CACHE_FILE):
+        return False
+    return (time.time() - os.path.getmtime(CACHE_FILE)) < CACHE_TTL
+
+def load_cache():
+    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_cache(data):
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
