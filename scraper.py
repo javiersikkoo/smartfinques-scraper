@@ -1,30 +1,63 @@
 # scraper.py
 import requests
 import time
+import json
+import os
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from datetime import datetime, timedelta
 
 BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+CACHE_FILE = "cache.json"
+CACHE_HOURS = 6
+
+
+def cache_is_valid():
+    if not os.path.exists(CACHE_FILE):
+        return False
+    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        cache = json.load(f)
+    timestamp = datetime.fromisoformat(cache["timestamp"])
+    return datetime.now() - timestamp < timedelta(hours=CACHE_HOURS)
+
+
+def load_cache():
+    with open(CACHE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)["data"]
+
+
+def save_cache(data):
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(
+            {"timestamp": datetime.now().isoformat(), "data": data},
+            f,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
 def scrape_properties(max_pages=20):
+    if cache_is_valid():
+        print("🧠 Usando cache")
+        return load_cache()
+
     properties = []
     page = 1
 
     while page <= max_pages:
         url = f"{BASE_DOMAIN}/venta/?pag={page}&idio=1"
-        print(f"Scrapeando página {page} → {url}")
+        print(f"Scrapeando página {page}")
 
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(url, headers=HEADERS, timeout=20)
         if resp.status_code != 200:
-            print("No más páginas")
             break
 
         soup = BeautifulSoup(resp.text, "html.parser")
         cards = soup.select("div.paginacion-ficha-datos")
 
         if not cards:
-            print("Listado vacío, fin")
             break
 
         for card in cards:
@@ -41,16 +74,17 @@ def scrape_properties(max_pages=20):
 
         page += 1
 
-    print(f"✔ Se han scrapeado {len(properties)} propiedades")
+    save_cache(properties)
+    print(f"📦 Se han scrapeado {len(properties)} inmuebles")
     return properties
 
 
 def scrape_property(url):
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = requests.get(url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
     except Exception as e:
-        print(f"Error en ficha {url}: {e}")
+        print(f"Error ficha {url}: {e}")
         return None
 
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -90,5 +124,5 @@ def scrape_property(url):
         "superficie": superficie,
         "descripcion": descripcion,
         "url": url,
-        "fotos": "|".join(fotos)
+        "fotos": "|".join(fotos),
     }
