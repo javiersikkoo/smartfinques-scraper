@@ -1,116 +1,94 @@
+# scraper.py
 import requests
-from bs4 import BeautifulSoup
-import json
-import csv
 import time
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
-BASE_URL = "https://www.inmuebles.smartfinques.com"
+BASE_DOMAIN = "https://www.inmuebles.smartfinques.com"
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-def normalize_url(url):
-    """Convierte rutas relativas en URLs completas"""
-    if url.startswith("/"):
-        return BASE_URL + url
-    elif not url.startswith("http"):
-        return BASE_URL + "/" + url
-    return url
+def scrape_properties(max_pages=20):
+    properties = []
+    page = 1
+
+    while page <= max_pages:
+        url = f"{BASE_DOMAIN}/venta/?pag={page}&idio=1"
+        print(f"Scrapeando página {page} → {url}")
+
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            print("No más páginas")
+            break
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        cards = soup.select("div.paginacion-ficha-datos")
+
+        if not cards:
+            print("Listado vacío, fin")
+            break
+
+        for card in cards:
+            link = card.select_one("a.paginacion-ficha-masinfo")
+            if not link:
+                continue
+
+            ficha_url = urljoin(BASE_DOMAIN, link["href"])
+            prop = scrape_property(ficha_url)
+            if prop:
+                properties.append(prop)
+
+            time.sleep(0.3)
+
+        page += 1
+
+    print(f"✔ Se han scrapeado {len(properties)} propiedades")
+    return properties
+
 
 def scrape_property(url):
-    url = normalize_url(url)
     try:
-        res = requests.get(url, timeout=10)
-        res.raise_for_status()
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp.raise_for_status()
     except Exception as e:
-        print(f"Error scrapeando {url}: {e}")
+        print(f"Error en ficha {url}: {e}")
         return None
 
-    soup = BeautifulSoup(res.text, "html.parser")
+    soup = BeautifulSoup(resp.text, "html.parser")
 
-    # Extraer datos principales
-    referencia = soup.select_one(".fichapropiedad-listadatos li span.valor")
-    referencia = referencia.get_text(strip=True) if referencia else None
+    titulo = soup.select_one("h1")
+    titulo = titulo.get_text(strip=True) if titulo else None
 
-    habitaciones = soup.select_one(".fichapropiedad-listadatos li span.valor:contains('Habitaciones')")  # fallback
-    # intentar otra forma
-    hab_tag = soup.find("li", text=lambda t: t and "Habitaciones" in t)
-    if hab_tag:
-        habitaciones = hab_tag.find_next("span").get_text(strip=True)
-    else:
-        habitaciones = None
+    precio = None
+    precio_tag = soup.select_one(".precio, .precioVenta")
+    if precio_tag:
+        precio = precio_tag.get_text(strip=True)
 
-    banos = None
-    banos_tag = soup.find("li", text=lambda t: t and "Baños" in t)
-    if banos_tag:
-        banos = banos_tag.find_next("span").get_text(strip=True)
+    descripcion = soup.select_one(".descripcion")
+    descripcion = descripcion.get_text(strip=True) if descripcion else None
 
-    precio = soup.select_one(".precio1")
-    precio = precio.get_text(strip=True) if precio else None
+    habitaciones = banos = superficie = None
+    for li in soup.select("li"):
+        text = li.get_text(" ", strip=True)
+        if "Habitaciones" in text:
+            habitaciones = text.replace("Habitaciones", "").strip()
+        if "Baños" in text:
+            banos = text.replace("Baños", "").strip()
+        if "Superficie" in text:
+            superficie = text.replace("Superficie", "").strip()
 
-    superficie_tag = soup.find("span", class_="superficie")
-    superficie = superficie_tag.get_text(strip=True) if superficie_tag else None
-
-    foto_tag = soup.find("article", class_="fotosAlVuelo")
-    foto = foto_tag.get("cargaFoto") if foto_tag else None
-
-    titulo_tag = soup.select_one("#slider-estrella-tituloprecio h1")
-    titulo = titulo_tag.get_text(strip=True) if titulo_tag else None
-
-    descripcion_tag = soup.find("meta", {"name": "description"})
-    descripcion = descripcion_tag["content"] if descripcion_tag else None
+    fotos = []
+    for img in soup.select(".galeria img, .swiper img"):
+        src = img.get("src")
+        if src and "nofotos" not in src:
+            fotos.append(urljoin(BASE_DOMAIN, src))
 
     return {
-        "referencia": referencia,
         "titulo": titulo,
-        "descripcion": descripcion,
-        "foto": foto,
+        "precio": precio,
         "habitaciones": habitaciones,
         "banos": banos,
-        "precio": precio,
         "superficie": superficie,
-        "url": url
+        "descripcion": descripcion,
+        "url": url,
+        "fotos": "|".join(fotos)
     }
-
-def scrape_properties(pages=1, delay=1):
-    all_props = []
-
-    for page in range(1, pages + 1):
-        print(f"Scrapeando página {page}...")
-        url = f"{BASE_URL}/listado/?page={page}"
-        try:
-            res = requests.get(url, timeout=10)
-            res.raise_for_status()
-        except Exception as e:
-            print(f"Error scrapeando listado página {page}: {e}")
-            continue
-
-        soup = BeautifulSoup(res.text, "html.parser")
-        links = []
-
-        # Buscar todas las propiedades
-        for a in soup.select("article a"):
-            href = a.get("href")
-            if href:
-                links.append(normalize_url(href))
-
-        print(f"Encontradas {len(links)} propiedades en la página {page}")
-
-        for link in links:
-            prop = scrape_property(link)
-            if prop:
-                all_props.append(prop)
-            time.sleep(delay)
-
-    return all_props
-
-def export_properties(properties):
-    # JSON
-    with open("propiedades.json", "w", encoding="utf-8") as f:
-        json.dump(properties, f, ensure_ascii=False, indent=2)
-
-    # CSV
-    if properties:
-        keys = properties[0].keys()
-        with open("propiedades.csv", "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
-            writer.writeheader()
-            for p in properties:
-                writer.writerow(p)
