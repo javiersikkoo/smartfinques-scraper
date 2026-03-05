@@ -10,11 +10,20 @@ const BASE_URL = "https://inmuebles.smartfinques.com"
 let properties = []
 let lastScrape = null
 
+
 function normalizeUrl(url) {
+
   if (!url) return null
+
   if (url.startsWith("http")) return url
+
+  if (!url.startsWith("/")) {
+    url = "/" + url
+  }
+
   return BASE_URL + url
 }
+
 
 async function scrapeProperty(url) {
 
@@ -44,9 +53,7 @@ async function scrapeProperty(url) {
       const parts = txt.split(":")
 
       if (parts.length === 2) {
-
         caracteristicas[parts[0].trim()] = parts[1].trim()
-
       }
 
     })
@@ -61,7 +68,9 @@ async function scrapeProperty(url) {
 
         src = normalizeUrl(src)
 
-        if (!fotos.includes(src)) fotos.push(src)
+        if (!fotos.includes(src)) {
+          fotos.push(src)
+        }
 
       }
 
@@ -79,13 +88,14 @@ async function scrapeProperty(url) {
 
   } catch (err) {
 
-    console.log("error ficha:", url)
+    console.log("❌ error ficha:", url)
 
     return null
 
   }
 
 }
+
 
 async function scrapeAll() {
 
@@ -97,7 +107,7 @@ async function scrapeAll() {
 
     const url = `${BASE_URL}/venta/?pag=${page}&idio=1`
 
-    console.log("scrapeando página", page)
+    console.log("📄 scrapeando página", page)
 
     try {
 
@@ -123,19 +133,21 @@ async function scrapeAll() {
 
       })
 
-      console.log("links encontrados:", links.length)
+      console.log("🔗 links encontrados:", links.length)
 
       for (const link of links) {
 
         const prop = await scrapeProperty(link)
 
-        if (prop) properties.push(prop)
+        if (prop) {
+          properties.push(prop)
+        }
 
       }
 
     } catch (err) {
 
-      console.log("error página:", page)
+      console.log("❌ error página:", page)
 
     }
 
@@ -143,19 +155,22 @@ async function scrapeAll() {
 
   lastScrape = new Date()
 
-  console.log("TOTAL INMUEBLES:", properties.length)
+  console.log("🏠 TOTAL INMUEBLES:", properties.length)
 
 }
 
+
 async function autoScrape() {
 
-  console.log("AUTO SCRAPE")
+  console.log("⏱ AUTO SCRAPE")
 
   await scrapeAll()
 
 }
 
+
 setInterval(autoScrape, 1000 * 60 * 60)
+
 
 app.get("/", (req, res) => {
 
@@ -166,6 +181,7 @@ app.get("/", (req, res) => {
   })
 
 })
+
 
 app.get("/scrape", async (req, res) => {
 
@@ -178,11 +194,13 @@ app.get("/scrape", async (req, res) => {
 
 })
 
+
 app.get("/properties", (req, res) => {
 
   res.json(properties)
 
 })
+
 
 app.get("/base44-properties", (req, res) => {
 
@@ -201,6 +219,7 @@ app.get("/base44-properties", (req, res) => {
 
 })
 
+
 app.get("/download-csv", (req, res) => {
 
   const parser = new Parser()
@@ -214,10 +233,11 @@ app.get("/download-csv", (req, res) => {
 
 })
 
+
 const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
 
-  console.log("Servidor funcionando en puerto", PORT)
+  console.log("🚀 servidor funcionando en puerto", PORT)
 
 })
