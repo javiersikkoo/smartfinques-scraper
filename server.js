@@ -73,44 +73,57 @@ async function scrapeProperty(url) {
 }
 
 async function scrapeAll() {
-  properties = [];
 
-  const pages = 12;
+  properties = []
+
+  const pages = 12
 
   for (let page = 1; page <= pages; page++) {
-    const url = `${BASE_URL}/venta/?pag=${page}&idio=1`;
 
-    console.log("Scrapeando página", page);
+    const url = `${BASE_URL}/venta/?pag=${page}&idio=1#modulo-paginacion`
+
+    console.log("Scrapeando página", page)
 
     try {
-      const { data } = await axios.get(url);
-      const $ = cheerio.load(data);
 
-      const links = [];
+      const { data } = await axios.get(url)
 
-      $("a").each((i, el) => {
-        const href = $(el).attr("href");
+      const $ = cheerio.load(data)
 
-        if (href && href.includes("/ficha/")) {
-          links.push(normalizeUrl(href));
+      const links = []
+
+      $(".paginacion-ficha-masinfo").each((i, el) => {
+
+        const href = $(el).attr("href")
+
+        if (href) {
+          links.push(normalizeUrl(href))
         }
-      });
 
-      const uniqueLinks = [...new Set(links)];
+      })
 
-      for (const link of uniqueLinks) {
-        const prop = await scrapeProperty(link);
+      console.log("links encontrados:", links.length)
 
-        if (prop) properties.push(prop);
+      for (const link of links) {
+
+        const prop = await scrapeProperty(link)
+
+        if (prop) properties.push(prop)
+
       }
+
     } catch (err) {
-      console.log("Error página", page);
+
+      console.log("Error página", page)
+
     }
+
   }
 
-  console.log("Se han scrapeado", properties.length, "inmuebles");
+  console.log("Se han scrapeado", properties.length, "inmuebles")
 
-  return properties;
+  return properties
+
 }
 
 app.get("/", (req, res) => {
