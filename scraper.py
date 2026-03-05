@@ -3,83 +3,116 @@ from bs4 import BeautifulSoup
 import time
 
 BASE_URL = "https://www.inmuebles.smartfinques.com"
-LIST_URL = "https://www.inmuebles.smartfinques.com/venta/"
+LIST_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1#modulo-paginacion"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0"
-}
 
-def normalize_url(url):
+def normalize(url):
     if url.startswith("http"):
         return url
-    return BASE_URL + "/" + url.lstrip("/")
+    return BASE_URL + "/" + url
 
-def extract_features(soup):
-    data = {}
-    ul = soup.select_one("ul.fichapropiedad-listadatos")
 
-    if not ul:
-        return data
+def get_property_links(page):
 
-    for li in ul.find_all("li"):
-        spans = li.find_all("span")
-        if len(spans) >= 2:
-            key = spans[0].get_text(strip=True).lower()
-            value = spans[1].get_text(strip=True)
-            data[key] = value
+    url = LIST_URL.format(page)
 
-    return data
+    res = requests.get(url, timeout=20)
+    soup = BeautifulSoup(res.text, "html.parser")
+
+    links = []
+
+    for a in soup.select(".paginacion-ficha-masinfo"):
+        href = a.get("href")
+        if href:
+            links.append(normalize(href))
+
+    return links
+
 
 def scrape_property(url):
+
     try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        r.raise_for_status()
+        res = requests.get(url, timeout=20)
+        soup = BeautifulSoup(res.text, "html.parser")
     except:
         return None
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    data = {}
 
-    titulo_tag = soup.select_one("#slider-estrella-tituloprecio")
-    precio_tag = soup.select_one(".precio1")
-    descripcion_tag = soup.find("meta", {"name": "description"})
+    data["url"] = url
 
-    features = extract_features(soup)
+    # titulo
+    titulo = soup.select_one(".titulo")
+    data["titulo"] = titulo.get_text(strip=True) if titulo else None
 
-    return {
-        "referencia": features.get("referencia"),
-        "titulo": titulo_tag.get_text(strip=True) if titulo_tag else None,
-        "precio": precio_tag.get_text(strip=True) if precio_tag else None,
-        "habitaciones": features.get("habitaciones"),
-        "baños": features.get("baños"),
-        "superficie": features.get("superficie construida"),
-        "descripcion": descripcion_tag["content"] if descripcion_tag else None,
-        "url": url
-    }
+    # precio
+    precio = soup.select_one(".precio")
+    data["precio"] = precio.get_text(strip=True) if precio else None
 
-def scrape_properties(pages=1, delay=1):
-    results = []
+    # referencia
+    ref = soup.find(text=lambda t: t and "Referencia" in t)
+    if ref:
+        data["referencia"] = ref.find_next().get_text(strip=True)
+    else:
+        data["referencia"] = None
 
-    for page in range(1, pages + 1):
-        url = f"{LIST_URL}?pag={page}&idio=1"
-        print(f"📄 Scrapeando página {page}")
+    # descripcion
+    desc = soup.select_one(".descripcion")
+    data["descripcion"] = desc.get_text(strip=True) if desc else None
 
-        try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
-            r.raise_for_status()
-        except:
-            continue
+    # habitaciones
+    hab = soup.find(text=lambda t: t and "Habitaciones" in t)
+    data["habitaciones"] = hab.find_next().text if hab else None
 
-        soup = BeautifulSoup(r.text, "html.parser")
+    # baños
+    ban = soup.find(text=lambda t: t and "Baños" in t)
+    data["banos"] = ban.find_next().text if ban else None
 
-        for a in soup.select("a.paginacion-ficha-masinfo"):
-            href = a.get("href")
-            if not href:
-                continue
+    # superficie
+    sup = soup.find(text=lambda t: t and "Superficie" in t)
+    data["superficie"] = sup.find_next().text if sup else None
 
-            prop = scrape_property(normalize_url(href))
+    # ciudad
+    ciudad = soup.find(text=lambda t: t and "Zona / Ciudad" in t)
+    data["ciudad"] = ciudad.find_next().text if ciudad else None
+
+    # fotos
+    fotos = []
+
+    for img in soup.select(".swiper-slide img"):
+        src = img.get("src")
+        if src and "nofoto" not in src:
+            fotos.append(normalize(src))
+
+    data["fotos"] = fotos
+
+    return data
+
+
+def scrape_properties(max_pages=20):
+
+    all_properties = []
+
+    for page in range(1, max_pages + 1):
+
+        print(f"Scrapeando página {page}...")
+
+        links = get_property_links(page)
+
+        if not links:
+            break
+
+        print(f"Encontrados {len(links)} inmuebles")
+
+        for link in links:
+
+            prop = scrape_property(link)
+
             if prop:
-                results.append(prop)
+                all_properties.append(prop)
 
-            time.sleep(delay)
+            time.sleep(0.5)
 
-    return results
+    print(f"Se han scrapeado {len(all_properties)} inmuebles")
+
+    return all_properties
