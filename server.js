@@ -11,6 +11,7 @@ let properties = []
 let lastScrape = null
 
 function normalizeUrl(url) {
+  if (!url) return null
   if (url.startsWith("http")) return url
   return BASE_URL + url
 }
@@ -20,6 +21,7 @@ async function scrapeProperty(url) {
   try {
 
     const { data } = await axios.get(url)
+
     const $ = cheerio.load(data)
 
     const titulo = $("h1").first().text().trim()
@@ -42,7 +44,9 @@ async function scrapeProperty(url) {
       const parts = txt.split(":")
 
       if (parts.length === 2) {
+
         caracteristicas[parts[0].trim()] = parts[1].trim()
+
       }
 
     })
@@ -54,8 +58,11 @@ async function scrapeProperty(url) {
       let src = $(el).attr("src")
 
       if (src) {
+
         src = normalizeUrl(src)
-        fotos.push(src)
+
+        if (!fotos.includes(src)) fotos.push(src)
+
       }
 
     })
@@ -72,7 +79,7 @@ async function scrapeProperty(url) {
 
   } catch (err) {
 
-    console.log("error ficha", url)
+    console.log("error ficha:", url)
 
     return null
 
@@ -100,15 +107,23 @@ async function scrapeAll() {
 
       const links = []
 
-      $(".paginacion-ficha-masinfo").each((i, el) => {
+      $("a").each((i, el) => {
 
         const href = $(el).attr("href")
 
-        if (href) links.push(normalizeUrl(href))
+        if (href && href.includes("/ficha/")) {
+
+          const full = normalizeUrl(href)
+
+          if (!links.includes(full)) {
+            links.push(full)
+          }
+
+        }
 
       })
 
-      console.log("links:", links.length)
+      console.log("links encontrados:", links.length)
 
       for (const link of links) {
 
@@ -120,7 +135,7 @@ async function scrapeAll() {
 
     } catch (err) {
 
-      console.log("error página", page)
+      console.log("error página:", page)
 
     }
 
@@ -144,7 +159,7 @@ setInterval(autoScrape, 1000 * 60 * 60)
 
 app.get("/", (req, res) => {
 
-  res.send({
+  res.json({
     status: "running",
     properties: properties.length,
     lastScrape
@@ -156,7 +171,7 @@ app.get("/scrape", async (req, res) => {
 
   await scrapeAll()
 
-  res.send({
+  res.json({
     message: "scrape completado",
     total: properties.length
   })
@@ -193,7 +208,6 @@ app.get("/download-csv", (req, res) => {
   const csv = parser.parse(properties)
 
   res.header("Content-Type", "text/csv")
-
   res.attachment("inmuebles.csv")
 
   res.send(csv)
@@ -204,6 +218,6 @@ const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
 
-  console.log("Server running on", PORT)
+  console.log("Servidor funcionando en puerto", PORT)
 
 })
