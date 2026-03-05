@@ -3,16 +3,19 @@ from bs4 import BeautifulSoup
 import time
 
 BASE_URL = "https://www.inmuebles.smartfinques.com"
-LIST_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1#modulo-paginacion"
+LIST_URL = "https://www.inmuebles.smartfinques.com/venta/?pag={}&idio=1"
 
 
 def normalize(url):
     if url.startswith("http"):
         return url
-    return BASE_URL + "/" + url
+    return BASE_URL + url
 
 
-def get_property_links(page):
+# -----------------------------
+# SACAR LINKS DE PROPIEDADES
+# -----------------------------
+def get_links(page):
 
     url = LIST_URL.format(page)
 
@@ -21,83 +24,124 @@ def get_property_links(page):
 
     links = []
 
-    for a in soup.select(".paginacion-ficha-masinfo"):
-        href = a.get("href")
-        if href:
+    for a in soup.find_all("a", href=True):
+
+        href = a["href"]
+
+        if "/ficha/" in href:
             links.append(normalize(href))
+
+    links = list(set(links))
 
     return links
 
 
+# -----------------------------
+# SCRAPEAR FICHA COMPLETA
+# -----------------------------
 def scrape_property(url):
 
     try:
+
         res = requests.get(url, timeout=20)
         soup = BeautifulSoup(res.text, "html.parser")
+
     except:
+
         return None
 
     data = {}
 
     data["url"] = url
 
-    # titulo
-    titulo = soup.select_one(".titulo")
-    data["titulo"] = titulo.get_text(strip=True) if titulo else None
+    # -----------------
+    # PRECIO
+    # -----------------
 
-    # precio
-    precio = soup.select_one(".precio")
-    data["precio"] = precio.get_text(strip=True) if precio else None
+    precio = soup.find(class_="precio")
 
-    # referencia
-    ref = soup.find(text=lambda t: t and "Referencia" in t)
-    if ref:
-        data["referencia"] = ref.find_next().get_text(strip=True)
+    if precio:
+        data["precio"] = precio.get_text(strip=True)
     else:
-        data["referencia"] = None
+        data["precio"] = None
 
-    # descripcion
-    desc = soup.select_one(".descripcion")
-    data["descripcion"] = desc.get_text(strip=True) if desc else None
+    # -----------------
+    # DESCRIPCION
+    # -----------------
 
-    # habitaciones
-    hab = soup.find(text=lambda t: t and "Habitaciones" in t)
-    data["habitaciones"] = hab.find_next().text if hab else None
+    descripcion = soup.find("div", class_="descripcion")
 
-    # baños
-    ban = soup.find(text=lambda t: t and "Baños" in t)
-    data["banos"] = ban.find_next().text if ban else None
+    if descripcion:
+        data["descripcion"] = descripcion.get_text(strip=True)
+    else:
+        data["descripcion"] = None
 
-    # superficie
-    sup = soup.find(text=lambda t: t and "Superficie" in t)
-    data["superficie"] = sup.find_next().text if sup else None
+    # -----------------
+    # FOTOS
+    # -----------------
 
-    # ciudad
-    ciudad = soup.find(text=lambda t: t and "Zona / Ciudad" in t)
-    data["ciudad"] = ciudad.find_next().text if ciudad else None
-
-    # fotos
     fotos = []
 
-    for img in soup.select(".swiper-slide img"):
+    for img in soup.find_all("img"):
+
         src = img.get("src")
-        if src and "nofoto" not in src:
+
+        if src and "/fotos/" in src:
             fotos.append(normalize(src))
 
-    data["fotos"] = fotos
+    data["fotos"] = list(set(fotos))
+
+    # -----------------
+    # CARACTERISTICAS
+    # -----------------
+
+    caracteristicas = {}
+
+    rows = soup.find_all("li")
+
+    for li in rows:
+
+        text = li.get_text(" ", strip=True)
+
+        if "Referencia" in text:
+
+            parts = text.split("Referencia")
+            if len(parts) > 1:
+                caracteristicas["Referencia"] = parts[1].strip()
+
+        if "Habitaciones" in text:
+
+            caracteristicas["Habitaciones"] = text.replace("Habitaciones", "").strip()
+
+        if "Baños" in text:
+
+            caracteristicas["Baños"] = text.replace("Baños", "").strip()
+
+        if "Superficie" in text:
+
+            caracteristicas["Superficie"] = text.replace("Superficie", "").strip()
+
+        if "Zona / Ciudad" in text:
+
+            caracteristicas["ZonaCiudad"] = text.replace("Zona / Ciudad", "").strip()
+
+    data.update(caracteristicas)
 
     return data
 
 
+# -----------------------------
+# SCRAPER PRINCIPAL
+# -----------------------------
 def scrape_properties(max_pages=20):
 
-    all_properties = []
+    all_props = []
 
     for page in range(1, max_pages + 1):
 
-        print(f"Scrapeando página {page}...")
+        print(f"Scrapeando página {page}")
 
-        links = get_property_links(page)
+        links = get_links(page)
 
         if not links:
             break
@@ -109,10 +153,10 @@ def scrape_properties(max_pages=20):
             prop = scrape_property(link)
 
             if prop:
-                all_properties.append(prop)
+                all_props.append(prop)
 
             time.sleep(0.5)
 
-    print(f"Se han scrapeado {len(all_properties)} inmuebles")
+    print(f"Se han scrapeado {len(all_props)} inmuebles")
 
-    return all_properties
+    return all_props
