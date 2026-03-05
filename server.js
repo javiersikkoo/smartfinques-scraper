@@ -1,4 +1,5 @@
 const express = require("express")
+const puppeteer = require("puppeteer")
 const axios = require("axios")
 const cheerio = require("cheerio")
 const { Parser } = require("json2csv")
@@ -17,11 +18,10 @@ function normalizeUrl(url) {
 
   if (url.startsWith("http")) return url
 
-  if (!url.startsWith("/")) {
-    url = "/" + url
-  }
+  if (!url.startsWith("/")) url = "/" + url
 
   return BASE_URL + url
+
 }
 
 
@@ -37,40 +37,19 @@ async function scrapeProperty(url) {
 
     const precio = $(".precio").first().text().trim()
 
-    const referencia = $(".ficha_referencia")
-      .text()
-      .replace("Ref:", "")
-      .trim()
-
     const descripcion = $(".ficha_descripcion").text().trim()
-
-    const caracteristicas = {}
-
-    $(".ficha_caracteristicas li").each((i, el) => {
-
-      const txt = $(el).text().trim()
-
-      const parts = txt.split(":")
-
-      if (parts.length === 2) {
-        caracteristicas[parts[0].trim()] = parts[1].trim()
-      }
-
-    })
 
     const fotos = []
 
-    $(".ficha_galeria img").each((i, el) => {
+    $("img").each((i, el) => {
 
-      let src = $(el).attr("src")
+      const src = $(el).attr("src")
 
-      if (src) {
+      if (src && src.includes("inmuebles")) {
 
-        src = normalizeUrl(src)
+        const img = normalizeUrl(src)
 
-        if (!fotos.includes(src)) {
-          fotos.push(src)
-        }
+        if (!fotos.includes(img)) fotos.push(img)
 
       }
 
@@ -79,11 +58,9 @@ async function scrapeProperty(url) {
     return {
       titulo,
       precio,
-      referencia,
       descripcion,
       fotos,
-      url,
-      ...caracteristicas
+      url
     }
 
   } catch (err) {
@@ -101,75 +78,57 @@ async function scrapeAll() {
 
   properties = []
 
-  const pages = 15
+  const browser = await puppeteer.launch({
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  })
 
-  for (let page = 1; page <= pages; page++) {
+  const page = await browser.newPage()
 
-    const url = `${BASE_URL}/venta/?pag=${page}&idio=1`
+  await page.goto(`${BASE_URL}/venta`, {
+    waitUntil: "networkidle2"
+  })
 
-    console.log("📄 scrapeando página", page)
+  await new Promise(r => setTimeout(r, 4000))
 
-    try {
+  const links = await page.evaluate(() => {
 
-      const { data } = await axios.get(url)
+    const arr = []
 
-      const $ = cheerio.load(data)
+    document.querySelectorAll("a").forEach(a => {
 
-      const links = []
+      const href = a.getAttribute("href")
 
-      $("a").each((i, el) => {
+      if (href && href.includes("/ficha/")) {
 
-        const href = $(el).attr("href")
-
-        if (href && href.includes("/ficha/")) {
-
-          const full = normalizeUrl(href)
-
-          if (!links.includes(full)) {
-            links.push(full)
-          }
-
-        }
-
-      })
-
-      console.log("🔗 links encontrados:", links.length)
-
-      for (const link of links) {
-
-        const prop = await scrapeProperty(link)
-
-        if (prop) {
-          properties.push(prop)
-        }
+        arr.push(href)
 
       }
 
-    } catch (err) {
+    })
 
-      console.log("❌ error página:", page)
+    return [...new Set(arr)]
 
-    }
+  })
+
+  console.log("🔗 links encontrados:", links.length)
+
+  for (const link of links) {
+
+    const full = normalizeUrl(link)
+
+    const prop = await scrapeProperty(full)
+
+    if (prop) properties.push(prop)
 
   }
+
+  await browser.close()
 
   lastScrape = new Date()
 
   console.log("🏠 TOTAL INMUEBLES:", properties.length)
 
 }
-
-
-async function autoScrape() {
-
-  console.log("⏱ AUTO SCRAPE")
-
-  await scrapeAll()
-
-}
-
-
-setInterval(autoScrape, 1000 * 60 * 60)
 
 
 app.get("/", (req, res) => {
@@ -208,7 +167,6 @@ app.get("/base44-properties", (req, res) => {
 
     titulo: p.titulo,
     precio: p.precio,
-    referencia: p.referencia,
     descripcion: p.descripcion,
     url: p.url,
     fotos: p.fotos.join(",")
