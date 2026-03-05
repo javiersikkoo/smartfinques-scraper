@@ -1,88 +1,96 @@
-const express = require("express");
-const axios = require("axios");
-const cheerio = require("cheerio");
-const { Parser } = require("json2csv");
+const express = require("express")
+const axios = require("axios")
+const cheerio = require("cheerio")
+const { Parser } = require("json2csv")
 
-const app = express();
+const app = express()
 
-const BASE_URL = "https://www.inmuebles.smartfinques.com";
-let properties = [];
+const BASE_URL = "https://inmuebles.smartfinques.com"
+
+let properties = []
+let lastScrape = null
 
 function normalizeUrl(url) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  if (url.startsWith("/")) return BASE_URL + url;
-  return BASE_URL + "/" + url;
+  if (url.startsWith("http")) return url
+  return BASE_URL + url
 }
 
 async function scrapeProperty(url) {
+
   try {
-    const { data } = await axios.get(url);
-    const $ = cheerio.load(data);
 
-    const titulo = $("h1").first().text().trim() || null;
+    const { data } = await axios.get(url)
+    const $ = cheerio.load(data)
 
-    const precio = $(".precio, .precio1").first().text().trim() || null;
+    const titulo = $("h1").first().text().trim()
 
-    const descripcion =
-      $('meta[name="description"]').attr("content") ||
-      $(".descripcion").text().trim() ||
-      null;
+    const precio = $(".precio").first().text().trim()
 
-    let referencia = null;
-    let habitaciones = null;
-    let banos = null;
-    let superficie = null;
-    let ciudad = null;
+    const referencia = $(".ficha_referencia")
+      .text()
+      .replace("Ref:", "")
+      .trim()
 
-    $("li").each((i, el) => {
-      const text = $(el).text();
+    const descripcion = $(".ficha_descripcion").text().trim()
 
-      if (text.includes("Referencia")) referencia = text.replace("Referencia", "").trim();
-      if (text.includes("Habitaciones")) habitaciones = text.replace("Habitaciones", "").trim();
-      if (text.includes("Baños")) banos = text.replace("Baños", "").trim();
-      if (text.includes("Superficie")) superficie = text.replace("Superficie", "").trim();
-      if (text.includes("Población")) ciudad = text.replace("Población", "").trim();
-    });
+    const caracteristicas = {}
 
-    const fotos = [];
+    $(".ficha_caracteristicas li").each((i, el) => {
 
-    $("img").each((i, el) => {
-      const src = $(el).attr("src");
-      if (src && src.includes("fotos")) {
-        fotos.push(normalizeUrl(src));
+      const txt = $(el).text().trim()
+
+      const parts = txt.split(":")
+
+      if (parts.length === 2) {
+        caracteristicas[parts[0].trim()] = parts[1].trim()
       }
-    });
+
+    })
+
+    const fotos = []
+
+    $(".ficha_galeria img").each((i, el) => {
+
+      let src = $(el).attr("src")
+
+      if (src) {
+        src = normalizeUrl(src)
+        fotos.push(src)
+      }
+
+    })
 
     return {
       titulo,
       precio,
       referencia,
-      habitaciones,
-      banos,
-      superficie,
-      ciudad,
       descripcion,
       fotos,
-      url
-    };
-  } catch (error) {
-    console.log("Error scrapeando ficha:", url);
-    return null;
+      url,
+      ...caracteristicas
+    }
+
+  } catch (err) {
+
+    console.log("error ficha", url)
+
+    return null
+
   }
+
 }
 
 async function scrapeAll() {
 
   properties = []
 
-  const pages = 12
+  const pages = 15
 
   for (let page = 1; page <= pages; page++) {
 
-    const url = `${BASE_URL}/venta/?pag=${page}&idio=1#modulo-paginacion`
+    const url = `${BASE_URL}/venta/?pag=${page}&idio=1`
 
-    console.log("Scrapeando página", page)
+    console.log("scrapeando página", page)
 
     try {
 
@@ -96,13 +104,11 @@ async function scrapeAll() {
 
         const href = $(el).attr("href")
 
-        if (href) {
-          links.push(normalizeUrl(href))
-        }
+        if (href) links.push(normalizeUrl(href))
 
       })
 
-      console.log("links encontrados:", links.length)
+      console.log("links:", links.length)
 
       for (const link of links) {
 
@@ -114,49 +120,90 @@ async function scrapeAll() {
 
     } catch (err) {
 
-      console.log("Error página", page)
+      console.log("error página", page)
 
     }
 
   }
 
-  console.log("Se han scrapeado", properties.length, "inmuebles")
+  lastScrape = new Date()
 
-  return properties
+  console.log("TOTAL INMUEBLES:", properties.length)
 
 }
 
+async function autoScrape() {
+
+  console.log("AUTO SCRAPE")
+
+  await scrapeAll()
+
+}
+
+setInterval(autoScrape, 1000 * 60 * 60)
+
 app.get("/", (req, res) => {
-  res.send("Servidor scraper funcionando");
-});
+
+  res.send({
+    status: "running",
+    properties: properties.length,
+    lastScrape
+  })
+
+})
 
 app.get("/scrape", async (req, res) => {
-  const data = await scrapeAll();
-  res.json({
-    total: data.length,
-    message: "Scrape completado"
-  });
-});
+
+  await scrapeAll()
+
+  res.send({
+    message: "scrape completado",
+    total: properties.length
+  })
+
+})
 
 app.get("/properties", (req, res) => {
-  res.json(properties);
-});
 
-app.get("/export-csv", (req, res) => {
-  if (!properties.length) {
-    return res.send("No hay propiedades scrapeadas aún");
-  }
+  res.json(properties)
 
-  const parser = new Parser();
-  const csv = parser.parse(properties);
+})
 
-  res.header("Content-Type", "text/csv");
-  res.attachment("propiedades.csv");
-  return res.send(csv);
-});
+app.get("/base44-properties", (req, res) => {
 
-const PORT = process.env.PORT || 10000;
+  const formatted = properties.map(p => ({
+
+    titulo: p.titulo,
+    precio: p.precio,
+    referencia: p.referencia,
+    descripcion: p.descripcion,
+    url: p.url,
+    fotos: p.fotos.join(",")
+
+  }))
+
+  res.json(formatted)
+
+})
+
+app.get("/download-csv", (req, res) => {
+
+  const parser = new Parser()
+
+  const csv = parser.parse(properties)
+
+  res.header("Content-Type", "text/csv")
+
+  res.attachment("inmuebles.csv")
+
+  res.send(csv)
+
+})
+
+const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
-  console.log("Servidor corriendo en puerto", PORT);
-});
+
+  console.log("Server running on", PORT)
+
+})
