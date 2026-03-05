@@ -1,84 +1,149 @@
-import express from "express"
-import axios from "axios"
-import * as cheerio from "cheerio"
+const express = require("express");
+const axios = require("axios");
+const cheerio = require("cheerio");
+const { Parser } = require("json2csv");
 
-const app = express()
-const PORT = process.env.PORT || 3000
+const app = express();
 
-let properties = []
+const BASE_URL = "https://www.inmuebles.smartfinques.com";
+let properties = [];
 
-const BASE = "https://www.inmuebles.smartfinques.com"
+function normalizeUrl(url) {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  if (url.startsWith("/")) return BASE_URL + url;
+  return BASE_URL + "/" + url;
+}
 
-app.get("/", (req,res)=>{
-  res.send("scraper running")
-})
+async function scrapeProperty(url) {
+  try {
+    const { data } = await axios.get(url);
+    const $ = cheerio.load(data);
 
-app.get("/scrape", async (req,res)=>{
+    const titulo = $("h1").first().text().trim() || null;
 
-  properties = []
+    const precio = $(".precio, .precio1").first().text().trim() || null;
 
-  const listURL =
-  "https://www.inmuebles.smartfinques.com/propiedades"
+    const descripcion =
+      $('meta[name="description"]').attr("content") ||
+      $(".descripcion").text().trim() ||
+      null;
 
-  const {data} = await axios.get(listURL)
+    let referencia = null;
+    let habitaciones = null;
+    let banos = null;
+    let superficie = null;
+    let ciudad = null;
 
-  const $ = cheerio.load(data)
+    $("li").each((i, el) => {
+      const text = $(el).text();
 
-  let links=[]
+      if (text.includes("Referencia")) referencia = text.replace("Referencia", "").trim();
+      if (text.includes("Habitaciones")) habitaciones = text.replace("Habitaciones", "").trim();
+      if (text.includes("Baños")) banos = text.replace("Baños", "").trim();
+      if (text.includes("Superficie")) superficie = text.replace("Superficie", "").trim();
+      if (text.includes("Población")) ciudad = text.replace("Población", "").trim();
+    });
 
-  $("a").each((i,el)=>{
+    const fotos = [];
 
-    const href=$(el).attr("href")
+    $("img").each((i, el) => {
+      const src = $(el).attr("src");
+      if (src && src.includes("fotos")) {
+        fotos.push(normalizeUrl(src));
+      }
+    });
 
-    if(href && href.includes("/ficha/")){
+    return {
+      titulo,
+      precio,
+      referencia,
+      habitaciones,
+      banos,
+      superficie,
+      ciudad,
+      descripcion,
+      fotos,
+      url
+    };
+  } catch (error) {
+    console.log("Error scrapeando ficha:", url);
+    return null;
+  }
+}
 
-      const url=BASE+href
+async function scrapeAll() {
+  properties = [];
 
-      if(!links.includes(url)) links.push(url)
+  const pages = 12;
 
+  for (let page = 1; page <= pages; page++) {
+    const url = `${BASE_URL}/venta/?pag=${page}&idio=1`;
+
+    console.log("Scrapeando página", page);
+
+    try {
+      const { data } = await axios.get(url);
+      const $ = cheerio.load(data);
+
+      const links = [];
+
+      $("a").each((i, el) => {
+        const href = $(el).attr("href");
+
+        if (href && href.includes("/ficha/")) {
+          links.push(normalizeUrl(href));
+        }
+      });
+
+      const uniqueLinks = [...new Set(links)];
+
+      for (const link of uniqueLinks) {
+        const prop = await scrapeProperty(link);
+
+        if (prop) properties.push(prop);
+      }
+    } catch (err) {
+      console.log("Error página", page);
     }
-
-  })
-
-  console.log("fichas:",links.length)
-
-  for(const url of links){
-
-    try{
-
-      const {data}=await axios.get(url)
-
-      const $=cheerio.load(data)
-
-      const titulo=$("h1").first().text().trim()
-
-      const precio=$(".precio").first().text().trim()
-
-      const descripcion=$("#descripcion").text().trim()
-
-      properties.push({
-        titulo,
-        precio,
-        descripcion,
-        url
-      })
-
-    }catch(e){
-      console.log("error:",url)
-    }
-
   }
 
+  console.log("Se han scrapeado", properties.length, "inmuebles");
+
+  return properties;
+}
+
+app.get("/", (req, res) => {
+  res.send("Servidor scraper funcionando");
+});
+
+app.get("/scrape", async (req, res) => {
+  const data = await scrapeAll();
   res.json({
-    scraped:properties.length
-  })
+    total: data.length,
+    message: "Scrape completado"
+  });
+});
 
-})
+app.get("/properties", (req, res) => {
+  res.json(properties);
+});
 
-app.get("/properties",(req,res)=>{
-  res.json(properties)
-})
+app.get("/export-csv", (req, res) => {
+  if (!properties.length) {
+    return res.send("No hay propiedades scrapeadas aún");
+  }
 
-app.listen(PORT,()=>{
-  console.log("server running on",PORT)
-})
+  const parser = new Parser();
+  const csv = parser.parse(properties);
+
+  res.header("Content-Type", "text/csv");
+  res.attachment("propiedades.csv");
+  return res.send(csv);
+});
+
+const PORT = process.env.PORT || 10000;
+
+app.listen(PORT, () => {
+  console.log("Servidor corriendo en puerto", PORT);
+});
