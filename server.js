@@ -1,8 +1,6 @@
 const express = require("express");
-const puppeteer = require("puppeteer-core");
-const chromium = require("@sparticuz/chromium");
-const fs = require("fs");
-const path = require("path");
+const axios = require("axios");
+const cheerio = require("cheerio");
 
 const app = express();
 
@@ -10,27 +8,7 @@ const BASE = "https://www.inmuebles.smartfinques.com";
 
 let cache = [];
 
-async function getBrowser() {
-
-  const executablePath = await chromium.executablePath();
-
-  const tmpPath = "/tmp/chromium";
-
-  if (!fs.existsSync(tmpPath)) {
-    fs.copyFileSync(executablePath, tmpPath);
-    fs.chmodSync(tmpPath, 0o755);
-  }
-
-  const browser = await puppeteer.launch({
-    args: chromium.args,
-    executablePath: tmpPath,
-    headless: true
-  });
-
-  return browser;
-}
-
-async function getLinks(page) {
+async function getLinks() {
 
   const links = new Set();
 
@@ -38,53 +16,62 @@ async function getLinks(page) {
 
     const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
-    console.log("Page", i);
+    console.log("Scanning page", i);
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const { data } = await axios.get(url);
 
-    const pageLinks = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll("a"))
-        .map(a => a.href)
-        .filter(h => h.includes("/ficha/"));
+    const $ = cheerio.load(data);
+
+    $("a").each((i, el) => {
+
+      const href = $(el).attr("href");
+
+      if (href && href.includes("/ficha/")) {
+
+        const full = href.startsWith("http") ? href : BASE + href;
+
+        links.add(full);
+
+      }
+
     });
 
-    if (pageLinks.length === 0) break;
-
-    pageLinks.forEach(l => links.add(l));
   }
 
   return [...links];
 }
 
-async function scrapeProperty(page, url) {
+async function scrapeProperty(url) {
 
   try {
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    const { data } = await axios.get(url);
 
-    const data = await page.evaluate(() => {
+    const $ = cheerio.load(data);
 
-      const text = document.body.innerText;
+    const text = $("body").text();
 
-      const price = text.match(/[\d\.]+\s?€/);
+    const priceMatch = text.match(/[\d\.]+\s?€/);
 
-      const fotos = Array.from(document.querySelectorAll("img"))
-        .map(i => i.src)
-        .filter(s => s.includes("fotos"));
+    const fotos = [];
 
-      return {
-        titulo: document.querySelector("h1")?.innerText || null,
-        precio: price ? price[0] : null,
-        descripcion:
-          document.querySelector('meta[name="description"]')?.content || null,
-        fotos
-      };
+    $("img").each((i, el) => {
+
+      const src = $(el).attr("src");
+
+      if (src && src.includes("fotos")) {
+        fotos.push(src);
+      }
 
     });
 
-    data.url = url;
-
-    return data;
+    return {
+      titulo: $("h1").text() || null,
+      precio: priceMatch ? priceMatch[0] : null,
+      descripcion: $('meta[name="description"]').attr("content") || null,
+      fotos,
+      url
+    };
 
   } catch (e) {
 
@@ -98,25 +85,19 @@ async function scrapeProperty(page, url) {
 
 async function scrapeAll() {
 
-  const browser = await getBrowser();
+  const links = await getLinks();
 
-  const page = await browser.newPage();
-
-  const links = await getLinks(page);
-
-  console.log("Found", links.length);
+  console.log("Found properties:", links.length);
 
   const results = [];
 
   for (const link of links) {
 
-    const data = await scrapeProperty(page, link);
+    const p = await scrapeProperty(link);
 
-    if (data) results.push(data);
+    if (p) results.push(p);
 
   }
-
-  await browser.close();
 
   cache = results;
 
@@ -155,5 +136,5 @@ app.get("/properties", (req, res) => {
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Server running", PORT);
+  console.log("Server running on", PORT);
 });
