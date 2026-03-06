@@ -1,6 +1,8 @@
 const express = require("express");
 const puppeteer = require("puppeteer-core");
 const chromium = require("@sparticuz/chromium");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 
@@ -8,56 +10,73 @@ const BASE = "https://www.inmuebles.smartfinques.com";
 
 let cache = [];
 
-async function getLinks(page){
+async function getBrowser() {
+
+  const executablePath = await chromium.executablePath();
+
+  const tmpPath = "/tmp/chromium";
+
+  if (!fs.existsSync(tmpPath)) {
+    fs.copyFileSync(executablePath, tmpPath);
+    fs.chmodSync(tmpPath, 0o755);
+  }
+
+  const browser = await puppeteer.launch({
+    args: chromium.args,
+    executablePath: tmpPath,
+    headless: true
+  });
+
+  return browser;
+}
+
+async function getLinks(page) {
 
   const links = new Set();
 
-  for(let i=1;i<=20;i++){
+  for (let i = 1; i <= 20; i++) {
 
     const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
-    console.log("Page",i);
+    console.log("Page", i);
 
-    await page.goto(url,{waitUntil:"domcontentloaded"});
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    const pageLinks = await page.evaluate(()=>{
-
+    const pageLinks = await page.evaluate(() => {
       return Array.from(document.querySelectorAll("a"))
-        .map(a=>a.href)
-        .filter(h=>h.includes("/ficha/"));
-
+        .map(a => a.href)
+        .filter(h => h.includes("/ficha/"));
     });
 
-    if(pageLinks.length===0) break;
+    if (pageLinks.length === 0) break;
 
-    pageLinks.forEach(l=>links.add(l));
-
+    pageLinks.forEach(l => links.add(l));
   }
 
   return [...links];
-
 }
 
-async function scrapeProperty(page,url){
+async function scrapeProperty(page, url) {
 
-  try{
+  try {
 
-    await page.goto(url,{waitUntil:"domcontentloaded"});
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
-    const data = await page.evaluate(()=>{
+    const data = await page.evaluate(() => {
 
       const text = document.body.innerText;
 
       const price = text.match(/[\d\.]+\s?€/);
 
       const fotos = Array.from(document.querySelectorAll("img"))
-        .map(i=>i.src)
-        .filter(s=>s.includes("fotos"));
+        .map(i => i.src)
+        .filter(s => s.includes("fotos"));
 
-      return{
+      return {
         titulo: document.querySelector("h1")?.innerText || null,
         precio: price ? price[0] : null,
-        descripcion: document.querySelector('meta[name="description"]')?.content || null,
+        descripcion:
+          document.querySelector('meta[name="description"]')?.content || null,
         fotos
       };
 
@@ -67,9 +86,9 @@ async function scrapeProperty(page,url){
 
     return data;
 
-  }catch(e){
+  } catch (e) {
 
-    console.log("error property",url);
+    console.log("Error property", url);
 
     return null;
 
@@ -77,28 +96,23 @@ async function scrapeProperty(page,url){
 
 }
 
-async function scrapeAll(){
+async function scrapeAll() {
 
-  const browser = await puppeteer.launch({
-    args: chromium.args,
-    defaultViewport: chromium.defaultViewport,
-    executablePath: await chromium.executablePath(),
-    headless: chromium.headless
-  });
+  const browser = await getBrowser();
 
   const page = await browser.newPage();
 
   const links = await getLinks(page);
 
-  console.log("Found",links.length);
+  console.log("Found", links.length);
 
   const results = [];
 
-  for(const link of links){
+  for (const link of links) {
 
-    const data = await scrapeProperty(page,link);
+    const data = await scrapeProperty(page, link);
 
-    if(data) results.push(data);
+    if (data) results.push(data);
 
   }
 
@@ -108,13 +122,13 @@ async function scrapeAll(){
 
 }
 
-app.get("/",(req,res)=>{
+app.get("/", (req, res) => {
   res.send("SmartFinques scraper running");
 });
 
-app.get("/scrape",async(req,res)=>{
+app.get("/scrape", async (req, res) => {
 
-  try{
+  try {
 
     await scrapeAll();
 
@@ -122,7 +136,9 @@ app.get("/scrape",async(req,res)=>{
       total: cache.length
     });
 
-  }catch(err){
+  } catch (err) {
+
+    console.error(err);
 
     res.status(500).json({
       error: err.message
@@ -132,12 +148,12 @@ app.get("/scrape",async(req,res)=>{
 
 });
 
-app.get("/properties",(req,res)=>{
+app.get("/properties", (req, res) => {
   res.json(cache);
 });
 
 const PORT = process.env.PORT || 10000;
 
-app.listen(PORT,()=>{
-  console.log("Server running",PORT);
+app.listen(PORT, () => {
+  console.log("Server running", PORT);
 });
