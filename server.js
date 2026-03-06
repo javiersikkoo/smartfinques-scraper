@@ -6,21 +6,18 @@ const app = express();
 const BASE = "https://www.inmuebles.smartfinques.com";
 
 let cache = [];
-let lastUpdate = 0;
 
 async function getAllPropertyLinks(page) {
 
   const links = new Set();
-  let pageNumber = 1;
-  let hasNext = true;
 
-  while (hasNext) {
+  for (let i = 1; i <= 20; i++) {
 
-    const url = `${BASE}/venta/?pag=${pageNumber}&idio=1`;
+    const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
-    console.log("Escaneando página", pageNumber);
+    console.log("Scanning page", i);
 
-    await page.goto(url, { waitUntil: "networkidle2" });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
     const pageLinks = await page.evaluate(() => {
       return Array.from(document.querySelectorAll("a"))
@@ -28,23 +25,16 @@ async function getAllPropertyLinks(page) {
         .filter(h => h.includes("/ficha/"));
     });
 
+    if (pageLinks.length === 0) break;
+
     pageLinks.forEach(l => links.add(l));
 
-    if (pageLinks.length === 0) {
-      hasNext = false;
-    } else {
-      pageNumber++;
-    }
-
-    if (pageNumber > 50) break; // seguridad
   }
 
   return [...links];
 }
 
-async function scrapeProperty(browser, url) {
-
-  const page = await browser.newPage();
+async function scrapeProperty(page, url) {
 
   try {
 
@@ -52,29 +42,18 @@ async function scrapeProperty(browser, url) {
 
     const data = await page.evaluate(() => {
 
-      const bodyText = document.body.innerText;
+      const text = document.body.innerText;
 
-      function extract(label) {
-        const r = new RegExp(label + "\\s*(\\d+)", "i");
-        const m = bodyText.match(r);
-        return m ? m[1] : null;
-      }
-
-      const priceMatch = bodyText.match(/[\d\.]+\s?€/);
+      const priceMatch = text.match(/[\d\.]+\s?€/);
 
       const fotos = Array.from(document.querySelectorAll("img"))
         .map(i => i.src)
-        .filter(s => s.includes("fotos"));
+        .filter(src => src.includes("fotos"));
 
       return {
         titulo: document.querySelector("h1")?.innerText || null,
         precio: priceMatch ? priceMatch[0] : null,
-        referencia: extract("Referencia"),
-        habitaciones: extract("Habitaciones"),
-        banos: extract("Baños"),
-        superficie: extract("Superficie"),
-        descripcion:
-          document.querySelector('meta[name="description"]')?.content || null,
+        descripcion: document.querySelector('meta[name="description"]')?.content || null,
         fotos
       };
 
@@ -82,15 +61,11 @@ async function scrapeProperty(browser, url) {
 
     data.url = url;
 
-    await page.close();
-
     return data;
 
   } catch (err) {
 
-    console.log("Error en propiedad:", url);
-
-    await page.close();
+    console.log("Error scraping property:", url);
 
     return null;
 
@@ -100,39 +75,39 @@ async function scrapeProperty(browser, url) {
 
 async function scrapeAll() {
 
-  console.log("Iniciando scraping completo");
+  console.log("Starting scrape");
 
   const browser = await puppeteer.launch({
+    headless: "new",
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
   const page = await browser.newPage();
 
-  const propertyLinks = await getAllPropertyLinks(page);
+  const links = await getAllPropertyLinks(page);
 
-  console.log("Total fichas encontradas:", propertyLinks.length);
+  console.log("Properties found:", links.length);
 
   const results = [];
 
-  for (const link of propertyLinks) {
+  for (const link of links) {
 
-    const property = await scrapeProperty(browser, link);
+    const data = await scrapeProperty(page, link);
 
-    if (property) results.push(property);
+    if (data) results.push(data);
 
   }
 
   await browser.close();
 
   cache = results;
-  lastUpdate = Date.now();
 
-  console.log("Scraping terminado:", results.length);
+  console.log("Scraped:", results.length);
 
 }
 
 app.get("/", (req, res) => {
-  res.send("SmartFinques scraper activo");
+  res.send("SmartFinques scraper running");
 });
 
 app.get("/scrape", async (req, res) => {
@@ -142,13 +117,16 @@ app.get("/scrape", async (req, res) => {
     await scrapeAll();
 
     res.json({
+      success: true,
       total: cache.length
     });
 
   } catch (err) {
 
+    console.error(err);
+
     res.status(500).json({
-      error: "Error scraping"
+      error: err.message
     });
 
   }
@@ -162,5 +140,5 @@ app.get("/properties", (req, res) => {
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Servidor iniciado en puerto", PORT);
+  console.log("Server running on", PORT);
 });
