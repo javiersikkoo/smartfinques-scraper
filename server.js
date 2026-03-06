@@ -1,201 +1,118 @@
-const express = require("express")
-const puppeteer = require("puppeteer")
-const axios = require("axios")
-const cheerio = require("cheerio")
-const { Parser } = require("json2csv")
+const express = require("express");
+const puppeteer = require("puppeteer");
 
-const app = express()
+const app = express();
 
-const BASE_URL = "https://inmuebles.smartfinques.com"
-
-let properties = []
-let lastScrape = null
-
-
-function normalizeUrl(url) {
-
-  if (!url) return null
-
-  if (url.startsWith("http")) return url
-
-  if (!url.startsWith("/")) url = "/" + url
-
-  return BASE_URL + url
-
-}
-
-
-async function scrapeProperty(url) {
-
-  try {
-
-    const { data } = await axios.get(url)
-
-    const $ = cheerio.load(data)
-
-    const titulo = $("h1").first().text().trim()
-
-    const precio = $(".precio").first().text().trim()
-
-    const descripcion = $(".ficha_descripcion").text().trim()
-
-    const fotos = []
-
-    $("img").each((i, el) => {
-
-      const src = $(el).attr("src")
-
-      if (src && src.includes("inmuebles")) {
-
-        const img = normalizeUrl(src)
-
-        if (!fotos.includes(img)) fotos.push(img)
-
-      }
-
-    })
-
-    return {
-      titulo,
-      precio,
-      descripcion,
-      fotos,
-      url
-    }
-
-  } catch (err) {
-
-    console.log("❌ error ficha:", url)
-
-    return null
-
-  }
-
-}
-
+const BASE = "https://www.inmuebles.smartfinques.com";
+let cache = [];
+let lastUpdate = 0;
 
 async function scrapeAll() {
 
-  properties = []
+  console.log("Iniciando scraping...");
 
   const browser = await puppeteer.launch({
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  })
+  });
 
-  const page = await browser.newPage()
+  const page = await browser.newPage();
 
-  await page.goto(`${BASE_URL}/venta`, {
-    waitUntil: "networkidle2"
-  })
+  const properties = [];
 
-  await new Promise(r => setTimeout(r, 4000))
+  for (let i = 1; i <= 12; i++) {
 
-  const links = await page.evaluate(() => {
+    const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
-    const arr = []
+    console.log("Página:", i);
 
-    document.querySelectorAll("a").forEach(a => {
+    await page.goto(url, { waitUntil: "networkidle2" });
 
-      const href = a.getAttribute("href")
+    const links = await page.evaluate(() => {
 
-      if (href && href.includes("/ficha/")) {
+      const anchors = Array.from(document.querySelectorAll("a"));
 
-        arr.push(href)
+      return anchors
+        .map(a => a.href)
+        .filter(h => h.includes("/ficha/"));
 
-      }
+    });
 
-    })
+    const uniqueLinks = [...new Set(links)];
 
-    return [...new Set(arr)]
+    for (const link of uniqueLinks) {
 
-  })
+      const p = await browser.newPage();
 
-  console.log("🔗 links encontrados:", links.length)
+      await p.goto(link, { waitUntil: "domcontentloaded" });
 
-  for (const link of links) {
+      const data = await p.evaluate(() => {
 
-    const full = normalizeUrl(link)
+        const text = document.body.innerText;
 
-    const prop = await scrapeProperty(full)
+        function extract(label) {
+          const r = new RegExp(label + "\\s*(\\d+)", "i");
+          const m = text.match(r);
+          return m ? m[1] : null;
+        }
 
-    if (prop) properties.push(prop)
+        const precio = document.body.innerText.match(/[\d\.]+\s?€/);
+
+        const fotos = Array.from(document.querySelectorAll("img"))
+          .map(i => i.src)
+          .filter(s => s.includes("fotos"));
+
+        return {
+          titulo: document.querySelector("h1")?.innerText || null,
+          precio: precio ? precio[0] : null,
+          referencia: extract("Referencia"),
+          habitaciones: extract("Habitaciones"),
+          banos: extract("Baños"),
+          superficie: extract("Superficie"),
+          descripcion: document.querySelector('meta[name="description"]')?.content || null,
+          fotos
+        };
+
+      });
+
+      data.url = link;
+
+      properties.push(data);
+
+      await p.close();
+
+    }
 
   }
 
-  await browser.close()
+  await browser.close();
 
-  lastScrape = new Date()
+  console.log("Se han scrapeado", properties.length, "inmuebles");
 
-  console.log("🏠 TOTAL INMUEBLES:", properties.length)
+  cache = properties;
+  lastUpdate = Date.now();
 
 }
 
+app.get("/", (req,res)=>{
+  res.send("SmartFinques scraper activo");
+});
 
-app.get("/", (req, res) => {
+app.get("/scrape", async (req,res)=>{
 
-  res.json({
-    status: "running",
-    properties: properties.length,
-    lastScrape
-  })
-
-})
-
-
-app.get("/scrape", async (req, res) => {
-
-  await scrapeAll()
+  await scrapeAll();
 
   res.json({
-    message: "scrape completado",
-    total: properties.length
-  })
+    total: cache.length
+  });
 
-})
+});
 
+app.get("/properties",(req,res)=>{
+  res.json(cache);
+});
 
-app.get("/properties", (req, res) => {
+const PORT = process.env.PORT || 10000;
 
-  res.json(properties)
-
-})
-
-
-app.get("/base44-properties", (req, res) => {
-
-  const formatted = properties.map(p => ({
-
-    titulo: p.titulo,
-    precio: p.precio,
-    descripcion: p.descripcion,
-    url: p.url,
-    fotos: p.fotos.join(",")
-
-  }))
-
-  res.json(formatted)
-
-})
-
-
-app.get("/download-csv", (req, res) => {
-
-  const parser = new Parser()
-
-  const csv = parser.parse(properties)
-
-  res.header("Content-Type", "text/csv")
-  res.attachment("inmuebles.csv")
-
-  res.send(csv)
-
-})
-
-
-const PORT = process.env.PORT || 3000
-
-app.listen(PORT, () => {
-
-  console.log("🚀 servidor funcionando en puerto", PORT)
-
-})
+app.listen(PORT, ()=>{
+  console.log("Server running on",PORT);
+});
