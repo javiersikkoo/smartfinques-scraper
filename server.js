@@ -8,33 +8,56 @@ const BASE = "https://www.inmuebles.smartfinques.com";
 
 let cache = [];
 
+const client = axios.create({
+  headers: {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    "Accept-Language": "es-ES,es;q=0.9"
+  },
+  timeout: 15000
+});
+
+function normalizeUrl(url) {
+
+  if (!url) return null;
+
+  if (url.startsWith("http")) return url;
+
+  if (url.startsWith("/")) return BASE + url;
+
+  return BASE + "/" + url;
+}
+
 async function getLinks() {
 
   const links = new Set();
 
-  for (let i = 1; i <= 20; i++) {
+  for (let i = 1; i <= 15; i++) {
 
     const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
     console.log("Scanning page", i);
 
-    const { data } = await axios.get(url);
+    try {
 
-    const $ = cheerio.load(data);
+      const { data } = await client.get(url);
 
-    $("a").each((i, el) => {
+      const $ = cheerio.load(data);
 
-      const href = $(el).attr("href");
+      $("a[href*='/ficha/']").each((i, el) => {
 
-      if (href && href.includes("/ficha/")) {
+        const href = $(el).attr("href");
 
-        const full = href.startsWith("http") ? href : BASE + href;
+        const full = normalizeUrl(href);
 
-        links.add(full);
+        if (full) links.add(full);
 
-      }
+      });
 
-    });
+    } catch (err) {
+
+      console.log("Error scanning page", i);
+
+    }
 
   }
 
@@ -45,13 +68,13 @@ async function scrapeProperty(url) {
 
   try {
 
-    const { data } = await axios.get(url);
+    const { data } = await client.get(url);
 
     const $ = cheerio.load(data);
 
-    const text = $("body").text();
+    const bodyText = $("body").text();
 
-    const priceMatch = text.match(/[\d\.]+\s?€/);
+    const priceMatch = bodyText.match(/[\d\.]+\s?€/);
 
     const fotos = [];
 
@@ -60,13 +83,15 @@ async function scrapeProperty(url) {
       const src = $(el).attr("src");
 
       if (src && src.includes("fotos")) {
-        fotos.push(src);
+
+        fotos.push(normalizeUrl(src));
+
       }
 
     });
 
     return {
-      titulo: $("h1").text() || null,
+      titulo: $("h1").first().text().trim() || null,
       precio: priceMatch ? priceMatch[0] : null,
       descripcion: $('meta[name="description"]').attr("content") || null,
       fotos,
@@ -85,21 +110,21 @@ async function scrapeProperty(url) {
 
 async function scrapeAll() {
 
+  cache = [];
+
   const links = await getLinks();
 
   console.log("Found properties:", links.length);
 
-  const results = [];
-
   for (const link of links) {
 
-    const p = await scrapeProperty(link);
+    const prop = await scrapeProperty(link);
 
-    if (p) results.push(p);
+    if (prop) cache.push(prop);
 
   }
 
-  cache = results;
+  console.log("Scraped:", cache.length);
 
 }
 
@@ -114,7 +139,8 @@ app.get("/scrape", async (req, res) => {
     await scrapeAll();
 
     res.json({
-      total: cache.length
+      total: cache.length,
+      message: "Scrape finished"
     });
 
   } catch (err) {
