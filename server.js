@@ -1,101 +1,140 @@
 const express = require("express");
-const fs = require("fs");
+const cors = require("cors");
+const axios = require("axios");
 const xml2js = require("xml2js");
 
 const app = express();
+app.use(cors());
+
+const PORT = process.env.PORT || 3000;
+
+// XML de Inmovilla
+const XML_URL = "AQUI_TU_XML_URL";
 
 let cache = [];
 
-async function loadXML() {
-
-  const xml = fs.readFileSync("./listado.xml", "utf8");
-
-  const parser = new xml2js.Parser({ explicitArray: false });
-
-  const result = await parser.parseStringPromise(xml);
-
-  const propiedades = result.propiedades.propiedad;
-
-  const list = propiedades.map(p => {
-
-    const d = p.datos;
-
-    let fotos = [];
-
-    if (p.fotos) {
-
-      Object.values(p.fotos).forEach(url => {
-        if (url) fotos.push(url);
-      });
-
-    }
-
-    return {
-
-      id: d.id,
-      referencia: d.ofertas_ref,
-      titulo: d.ofertas_titulo1,
-      descripcion: d.ofertas_descrip1,
-
-      precio: Number(d.ofertas_precioinmo),
-
-      tipo: d.tipo_tipo_ofer,
-
-      ciudad: d.ciudad_ciudad,
-      zona: d.zonas_zona,
-
-      habitaciones: Number(d.totalhab),
-      banos: Number(d.ofertas_banyos),
-
-      superficie: Number(d.ofertas_m_cons),
-
-      lat: Number(d.ofertas_latitud),
-      lng: Number(d.ofertas_altitud),
-
-      fotos
-
-    };
-
-  });
-
-  cache = list;
-
-  console.log("Propiedades cargadas:", cache.length);
-
+// convertir string a número
+function num(v){
+  if(!v) return 0;
+  return parseFloat(v) || 0;
 }
 
-app.get("/", (req, res) => {
-  res.send("SmartFinques API running");
-});
+// convertir propiedad
+function parseProperty(p){
 
-app.get("/load", async (req, res) => {
+  let fotos = [];
 
-  try {
-
-    await loadXML();
-
-    res.json({
-      total: cache.length
+  if(p.fotos && p.fotos[0]){
+    Object.values(p.fotos[0]).forEach(url=>{
+      if(url) fotos.push(url);
     });
-
-  } catch (e) {
-
-    res.status(500).json({
-      error: e.message
-    });
-
   }
 
+  return {
+    id: p.id_inmueble?.[0] || "",
+    referencia: p.referencia?.[0] || "",
+    titulo: p.ofertas_titulo1?.[0] || "",
+    descripcion: p.descripcion?.[0] || "",
+    precio: num(p.precio?.[0]),
+    tipo: p.tipo_oferta?.[0] || "",
+    ciudad: p.ciudad?.[0] || "",
+    zona: p.zona?.[0] || "",
+    habitaciones: num(p.habitaciones?.[0]),
+    banos: num(p.banos?.[0]),
+    superficie: num(p.metros?.[0]),
+    lat: num(p.latitud?.[0]),
+    lng: num(p.longitud?.[0]),
+    fotos
+  };
+}
+
+// cargar XML
+async function loadXML(){
+  try{
+
+    const response = await axios.get(XML_URL);
+
+    const parsed = await xml2js.parseStringPromise(response.data);
+
+    const propiedades = parsed?.inmuebles?.inmueble || [];
+
+    cache = propiedades.map(parseProperty);
+
+    console.log("Propiedades cargadas:", cache.length);
+
+  }catch(e){
+    console.log("Error cargando XML", e.message);
+  }
+}
+
+// actualizar cada 30 min
+setInterval(loadXML, 30 * 60 * 1000);
+
+// primera carga
+loadXML();
+
+
+// ======================
+// ENDPOINTS
+// ======================
+
+// todas las propiedades
+app.get("/properties",(req,res)=>{
+  res.json({
+    total: cache.length,
+    properties: cache
+  });
 });
 
-app.get("/properties", (req, res) => {
-  res.json(cache);
+// propiedad individual
+app.get("/property/:id",(req,res)=>{
+
+  const property = cache.find(p=>p.id === req.params.id);
+
+  if(!property){
+    return res.status(404).json({error:"Not found"});
+  }
+
+  res.json(property);
 });
 
-const PORT = process.env.PORT || 10000;
+// búsqueda simple
+app.get("/search",(req,res)=>{
 
-app.listen(PORT, () => {
+  const { ciudad, tipo, precio_max } = req.query;
 
-  console.log("Server running");
+  let results = cache;
 
+  if(ciudad){
+    results = results.filter(p =>
+      p.ciudad.toLowerCase().includes(ciudad.toLowerCase())
+    );
+  }
+
+  if(tipo){
+    results = results.filter(p =>
+      p.tipo.toLowerCase().includes(tipo.toLowerCase())
+    );
+  }
+
+  if(precio_max){
+    results = results.filter(p =>
+      p.precio <= Number(precio_max)
+    );
+  }
+
+  res.json({
+    total: results.length,
+    properties: results
+  });
+
+});
+
+// home
+app.get("/",(req,res)=>{
+  res.send("API inmobiliaria funcionando");
+});
+
+app.listen(PORT,()=>{
+  console.log("Servidor corriendo en puerto", PORT);
 });
