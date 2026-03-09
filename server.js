@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
-const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 const xml2js = require("xml2js");
 
 const app = express();
@@ -8,25 +9,22 @@ app.use(cors());
 
 const PORT = process.env.PORT || 3000;
 
-// XML de Inmovilla
-const XML_URL = "AQUI_TU_XML_URL";
-
 let cache = [];
 
 // convertir string a número
-function num(v){
-  if(!v) return 0;
+function num(v) {
+  if (!v) return 0;
   return parseFloat(v) || 0;
 }
 
 // convertir propiedad
-function parseProperty(p){
+function parseProperty(p) {
 
   let fotos = [];
 
-  if(p.fotos && p.fotos[0]){
-    Object.values(p.fotos[0]).forEach(url=>{
-      if(url) fotos.push(url);
+  if (p.fotos && p.fotos[0]) {
+    Object.values(p.fotos[0]).forEach(url => {
+      if (url) fotos.push(url);
     });
   }
 
@@ -44,17 +42,20 @@ function parseProperty(p){
     superficie: num(p.metros?.[0]),
     lat: num(p.latitud?.[0]),
     lng: num(p.longitud?.[0]),
-    fotos
+    fotos: fotos
   };
 }
 
-// cargar XML
-async function loadXML(){
-  try{
+// cargar XML desde archivo local
+async function loadXML() {
 
-    const response = await axios.get(XML_URL);
+  try {
 
-    const parsed = await xml2js.parseStringPromise(response.data);
+    const filePath = path.join(__dirname, "listado.xml");
+
+    const xmlData = fs.readFileSync(filePath, "utf8");
+
+    const parsed = await xml2js.parseStringPromise(xmlData);
 
     const propiedades = parsed?.inmuebles?.inmueble || [];
 
@@ -62,62 +63,73 @@ async function loadXML(){
 
     console.log("Propiedades cargadas:", cache.length);
 
-  }catch(e){
-    console.log("Error cargando XML", e.message);
+  } catch (error) {
+
+    console.log("Error leyendo XML:", error.message);
+
   }
+
 }
+
+// cargar al iniciar
+loadXML();
 
 // actualizar cada 30 min
 setInterval(loadXML, 30 * 60 * 1000);
 
-// primera carga
-loadXML();
 
-
-// ======================
+// ========================
 // ENDPOINTS
-// ======================
+// ========================
+
 
 // todas las propiedades
-app.get("/properties",(req,res)=>{
+app.get("/properties", (req, res) => {
+
   res.json({
     total: cache.length,
     properties: cache
   });
+
 });
 
+
 // propiedad individual
-app.get("/property/:id",(req,res)=>{
+app.get("/property/:id", (req, res) => {
 
-  const property = cache.find(p=>p.id === req.params.id);
+  const property = cache.find(p => p.id === req.params.id);
 
-  if(!property){
-    return res.status(404).json({error:"Not found"});
+  if (!property) {
+    return res.status(404).json({
+      error: "Property not found"
+    });
   }
 
   res.json(property);
+
 });
 
+
 // búsqueda simple
-app.get("/search",(req,res)=>{
+app.get("/search", (req, res) => {
 
   const { ciudad, tipo, precio_max } = req.query;
 
   let results = cache;
 
-  if(ciudad){
+  if (ciudad) {
     results = results.filter(p =>
       p.ciudad.toLowerCase().includes(ciudad.toLowerCase())
     );
   }
 
-  if(tipo){
+  if (tipo) {
     results = results.filter(p =>
       p.tipo.toLowerCase().includes(tipo.toLowerCase())
     );
   }
 
-  if(precio_max){
+  if (precio_max) {
     results = results.filter(p =>
       p.precio <= Number(precio_max)
     );
@@ -130,11 +142,18 @@ app.get("/search",(req,res)=>{
 
 });
 
+
 // home
-app.get("/",(req,res)=>{
+app.get("/", (req, res) => {
+
   res.send("API inmobiliaria funcionando");
+
 });
 
-app.listen(PORT,()=>{
+
+// iniciar servidor
+app.listen(PORT, () => {
+
   console.log("Servidor corriendo en puerto", PORT);
+
 });
