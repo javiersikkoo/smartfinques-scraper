@@ -1,30 +1,37 @@
 const express = require("express");
-const puppeteer = require("puppeteer");
+const { chromium } = require("playwright");
 
 const app = express();
 
 const BASE = "https://www.inmuebles.smartfinques.com";
+
 let cache = [];
 
-async function getLinks(page) {
+async function scrapeAll() {
+
+  cache = [];
+
+  const browser = await chromium.launch({
+    args: ["--no-sandbox"]
+  });
+
+  const page = await browser.newPage();
 
   const links = new Set();
 
-  for (let i = 1; i <= 15; i++) {
+  for (let i = 1; i <= 10; i++) {
 
     const url = `${BASE}/venta/?pag=${i}&idio=1`;
 
     console.log("Scanning page", i);
 
-    await page.goto(url, { waitUntil: "networkidle2" });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
 
     const pageLinks = await page.evaluate(() => {
 
-      const anchors = Array.from(document.querySelectorAll("a"));
-
-      return anchors
+      return Array.from(document.querySelectorAll("a"))
         .map(a => a.href)
-        .filter(href => href.includes("/ficha/"));
+        .filter(h => h.includes("/ficha/"));
 
     });
 
@@ -32,90 +39,57 @@ async function getLinks(page) {
 
   }
 
-  return [...links];
-}
-
-async function scrapeProperty(page, url) {
-
-  try {
-
-    await page.goto(url, { waitUntil: "networkidle2" });
-
-    const data = await page.evaluate(() => {
-
-      const getText = (selector) => {
-        const el = document.querySelector(selector);
-        return el ? el.innerText.trim() : null;
-      };
-
-      const titulo = getText("h1");
-
-      const precio = document.body.innerText.match(/[\d\.]+\s?€/);
-      
-      const descripcionMeta = document.querySelector('meta[name="description"]');
-      const descripcion = descripcionMeta ? descripcionMeta.content : null;
-
-      const fotos = Array.from(document.querySelectorAll("img"))
-        .map(img => img.src)
-        .filter(src => src.includes("fotos"));
-
-      return {
-        titulo,
-        precio: precio ? precio[0] : null,
-        descripcion,
-        fotos
-      };
-
-    });
-
-    data.url = url;
-
-    return data;
-
-  } catch (e) {
-
-    console.log("Error scraping property", url);
-
-    return null;
-
-  }
-
-}
-
-async function scrapeAll() {
-
-  cache = [];
-
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox"
-    ]
-  });
-
-  const page = await browser.newPage();
-
-  const links = await getLinks(page);
-
-  console.log("Found properties:", links.length);
+  console.log("Found properties:", links.size);
 
   for (const link of links) {
 
-    const prop = await scrapeProperty(page, link);
+    try {
 
-    if (prop) cache.push(prop);
+      await page.goto(link, { waitUntil: "domcontentloaded" });
+
+      const data = await page.evaluate(() => {
+
+        const titulo = document.querySelector("h1")?.innerText || null;
+
+        const bodyText = document.body.innerText;
+
+        const priceMatch = bodyText.match(/[\d\.]+\s?€/);
+
+        const descripcion = document.querySelector('meta[name="description"]')?.content || null;
+
+        const fotos = Array.from(document.querySelectorAll("img"))
+          .map(img => img.src)
+          .filter(src => src.includes("fotos"));
+
+        return {
+          titulo,
+          precio: priceMatch ? priceMatch[0] : null,
+          descripcion,
+          fotos
+        };
+
+      });
+
+      data.url = link;
+
+      cache.push(data);
+
+      console.log("Scraped:", link);
+
+    } catch (e) {
+
+      console.log("Error scraping", link);
+
+    }
 
   }
 
   await browser.close();
 
-  console.log("Scraped:", cache.length);
-
 }
 
 app.get("/", (req, res) => {
-  res.send("SmartFinques Puppeteer scraper running");
+  res.send("SmartFinques scraper running");
 });
 
 app.get("/scrape", async (req, res) => {
@@ -129,8 +103,6 @@ app.get("/scrape", async (req, res) => {
     });
 
   } catch (err) {
-
-    console.error(err);
 
     res.status(500).json({
       error: err.message
