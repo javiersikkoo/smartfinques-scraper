@@ -1,33 +1,12 @@
 const express = require("express");
-const axios = require("axios");
-const cheerio = require("cheerio");
+const puppeteer = require("puppeteer");
 
 const app = express();
 
 const BASE = "https://www.inmuebles.smartfinques.com";
-
 let cache = [];
 
-const client = axios.create({
-  headers: {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-    "Accept-Language": "es-ES,es;q=0.9"
-  },
-  timeout: 15000
-});
-
-function normalizeUrl(url) {
-
-  if (!url) return null;
-
-  if (url.startsWith("http")) return url;
-
-  if (url.startsWith("/")) return BASE + url;
-
-  return BASE + "/" + url;
-}
-
-async function getLinks() {
+async function getLinks(page) {
 
   const links = new Set();
 
@@ -37,70 +16,65 @@ async function getLinks() {
 
     console.log("Scanning page", i);
 
-    try {
+    await page.goto(url, { waitUntil: "networkidle2" });
 
-      const { data } = await client.get(url);
+    const pageLinks = await page.evaluate(() => {
 
-      const $ = cheerio.load(data);
+      const anchors = Array.from(document.querySelectorAll("a"));
 
-      $("a[href*='/ficha/']").each((i, el) => {
+      return anchors
+        .map(a => a.href)
+        .filter(href => href.includes("/ficha/"));
 
-        const href = $(el).attr("href");
+    });
 
-        const full = normalizeUrl(href);
-
-        if (full) links.add(full);
-
-      });
-
-    } catch (err) {
-
-      console.log("Error scanning page", i);
-
-    }
+    pageLinks.forEach(l => links.add(l));
 
   }
 
   return [...links];
 }
 
-async function scrapeProperty(url) {
+async function scrapeProperty(page, url) {
 
   try {
 
-    const { data } = await client.get(url);
+    await page.goto(url, { waitUntil: "networkidle2" });
 
-    const $ = cheerio.load(data);
+    const data = await page.evaluate(() => {
 
-    const bodyText = $("body").text();
+      const getText = (selector) => {
+        const el = document.querySelector(selector);
+        return el ? el.innerText.trim() : null;
+      };
 
-    const priceMatch = bodyText.match(/[\d\.]+\s?€/);
+      const titulo = getText("h1");
 
-    const fotos = [];
+      const precio = document.body.innerText.match(/[\d\.]+\s?€/);
+      
+      const descripcionMeta = document.querySelector('meta[name="description"]');
+      const descripcion = descripcionMeta ? descripcionMeta.content : null;
 
-    $("img").each((i, el) => {
+      const fotos = Array.from(document.querySelectorAll("img"))
+        .map(img => img.src)
+        .filter(src => src.includes("fotos"));
 
-      const src = $(el).attr("src");
-
-      if (src && src.includes("fotos")) {
-
-        fotos.push(normalizeUrl(src));
-
-      }
+      return {
+        titulo,
+        precio: precio ? precio[0] : null,
+        descripcion,
+        fotos
+      };
 
     });
 
-    return {
-      titulo: $("h1").first().text().trim() || null,
-      precio: priceMatch ? priceMatch[0] : null,
-      descripcion: $('meta[name="description"]').attr("content") || null,
-      fotos,
-      url
-    };
+    data.url = url;
+
+    return data;
 
   } catch (e) {
 
-    console.log("Error property", url);
+    console.log("Error scraping property", url);
 
     return null;
 
@@ -112,24 +86,36 @@ async function scrapeAll() {
 
   cache = [];
 
-  const links = await getLinks();
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox"
+    ]
+  });
+
+  const page = await browser.newPage();
+
+  const links = await getLinks(page);
 
   console.log("Found properties:", links.length);
 
   for (const link of links) {
 
-    const prop = await scrapeProperty(link);
+    const prop = await scrapeProperty(page, link);
 
     if (prop) cache.push(prop);
 
   }
+
+  await browser.close();
 
   console.log("Scraped:", cache.length);
 
 }
 
 app.get("/", (req, res) => {
-  res.send("SmartFinques scraper running");
+  res.send("SmartFinques Puppeteer scraper running");
 });
 
 app.get("/scrape", async (req, res) => {
@@ -139,8 +125,7 @@ app.get("/scrape", async (req, res) => {
     await scrapeAll();
 
     res.json({
-      total: cache.length,
-      message: "Scrape finished"
+      total: cache.length
     });
 
   } catch (err) {
