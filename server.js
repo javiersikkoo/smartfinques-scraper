@@ -1,21 +1,29 @@
 const express = require("express");
-const { chromium } = require("playwright");
+const axios = require("axios");
+const cheerio = require("cheerio");
 
 const app = express();
 
 const BASE = "https://www.inmuebles.smartfinques.com";
 
+const client = axios.create({
+  headers: {
+    "User-Agent": "Mozilla/5.0",
+    "Accept-Language": "es-ES,es;q=0.9"
+  },
+  timeout: 15000
+});
+
 let cache = [];
 
-async function scrapeAll() {
+function normalize(url) {
+  if (!url) return null;
+  if (url.startsWith("http")) return url;
+  if (url.startsWith("/")) return BASE + url;
+  return BASE + "/" + url;
+}
 
-  cache = [];
-
-  const browser = await chromium.launch({
-    args: ["--no-sandbox"]
-  });
-
-  const page = await browser.newPage();
+async function getLinks() {
 
   const links = new Set();
 
@@ -25,66 +33,96 @@ async function scrapeAll() {
 
     console.log("Scanning page", i);
 
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-
-    const pageLinks = await page.evaluate(() => {
-
-      return Array.from(document.querySelectorAll("a"))
-        .map(a => a.href)
-        .filter(h => h.includes("/ficha/"));
-
-    });
-
-    pageLinks.forEach(l => links.add(l));
-
-  }
-
-  console.log("Found properties:", links.size);
-
-  for (const link of links) {
-
     try {
 
-      await page.goto(link, { waitUntil: "domcontentloaded" });
+      const { data } = await client.get(url);
 
-      const data = await page.evaluate(() => {
+      const $ = cheerio.load(data);
 
-        const titulo = document.querySelector("h1")?.innerText || null;
+      $("a[href*='/ficha/']").each((i, el) => {
 
-        const bodyText = document.body.innerText;
+        const href = $(el).attr("href");
 
-        const priceMatch = bodyText.match(/[\d\.]+\s?€/);
+        const full = normalize(href);
 
-        const descripcion = document.querySelector('meta[name="description"]')?.content || null;
-
-        const fotos = Array.from(document.querySelectorAll("img"))
-          .map(img => img.src)
-          .filter(src => src.includes("fotos"));
-
-        return {
-          titulo,
-          precio: priceMatch ? priceMatch[0] : null,
-          descripcion,
-          fotos
-        };
+        if (full) links.add(full);
 
       });
 
-      data.url = link;
-
-      cache.push(data);
-
-      console.log("Scraped:", link);
-
     } catch (e) {
-
-      console.log("Error scraping", link);
-
+      console.log("Error scanning page", i);
     }
 
   }
 
-  await browser.close();
+  return [...links];
+
+}
+
+async function scrapeProperty(url) {
+
+  try {
+
+    const { data } = await client.get(url);
+
+    const $ = cheerio.load(data);
+
+    const titulo = $("h1").first().text().trim() || null;
+
+    const bodyText = $("body").text();
+
+    const priceMatch = bodyText.match(/[\d\.]+\s?€/);
+
+    const descripcion =
+      $('meta[name="description"]').attr("content") || null;
+
+    const fotos = [];
+
+    $("img").each((i, el) => {
+
+      const src = $(el).attr("src");
+
+      if (src && src.includes("fotos")) {
+        fotos.push(normalize(src));
+      }
+
+    });
+
+    return {
+      titulo,
+      precio: priceMatch ? priceMatch[0] : null,
+      descripcion,
+      fotos,
+      url
+    };
+
+  } catch (e) {
+
+    console.log("Error property", url);
+
+    return null;
+
+  }
+
+}
+
+async function scrapeAll() {
+
+  cache = [];
+
+  const links = await getLinks();
+
+  console.log("Found properties:", links.length);
+
+  for (const link of links) {
+
+    const p = await scrapeProperty(link);
+
+    if (p) cache.push(p);
+
+  }
+
+  console.log("Scraped:", cache.length);
 
 }
 
