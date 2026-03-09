@@ -8,7 +8,7 @@ let cache = [];
 
 async function loadXML() {
 
-  const xml = fs.readFileSync("./inmuebles.xml", "utf8");
+  const xml = fs.readFileSync("./listado.xml", "utf8");
 
   const parser = new xml2js.Parser({ explicitArray: false });
 
