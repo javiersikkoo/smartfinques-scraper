@@ -1,149 +1,99 @@
 const express = require("express");
 const axios = require("axios");
-const cheerio = require("cheerio");
+const xml2js = require("xml2js");
 
 const app = express();
 
-const BASE = "https://www.inmuebles.smartfinques.com";
-
-const client = axios.create({
-  headers: {
-    "User-Agent": "Mozilla/5.0",
-    "Accept-Language": "es-ES,es;q=0.9"
-  },
-  timeout: 15000
-});
+const XML_URL = "PON_AQUI_EL_XML_DIRECTO";
 
 let cache = [];
 
-function normalize(url) {
-  if (!url) return null;
-  if (url.startsWith("http")) return url;
-  if (url.startsWith("/")) return BASE + url;
-  return BASE + "/" + url;
-}
+async function loadXML() {
 
-async function getLinks() {
+  const response = await axios.get(XML_URL);
 
-  const links = new Set();
+  const parser = new xml2js.Parser({ explicitArray: false });
 
-  for (let i = 1; i <= 10; i++) {
+  const result = await parser.parseStringPromise(response.data);
 
-    const url = `${BASE}/venta/?pag=${i}&idio=1`;
+  const propiedades = result.propiedades.propiedad;
 
-    console.log("Scanning page", i);
+  const list = propiedades.map(p => {
 
-    try {
+    const d = p.datos;
 
-      const { data } = await client.get(url);
+    let fotos = [];
 
-      const $ = cheerio.load(data);
+    if (p.fotos) {
 
-      $("a[href*='/ficha/']").each((i, el) => {
+      if (Array.isArray(p.fotos)) {
 
-        const href = $(el).attr("href");
+        p.fotos.forEach(f => {
+          const url = Object.values(f)[0];
+          if (url) fotos.push(url);
+        });
 
-        const full = normalize(href);
+      } else {
 
-        if (full) links.add(full);
+        const url = Object.values(p.fotos)[0];
+        if (url) fotos.push(url);
 
-      });
-
-    } catch (e) {
-      console.log("Error scanning page", i);
-    }
-
-  }
-
-  return [...links];
-
-}
-
-async function scrapeProperty(url) {
-
-  try {
-
-    const { data } = await client.get(url);
-
-    const $ = cheerio.load(data);
-
-    const titulo = $("h1").first().text().trim() || null;
-
-    const bodyText = $("body").text();
-
-    const priceMatch = bodyText.match(/[\d\.]+\s?€/);
-
-    const descripcion =
-      $('meta[name="description"]').attr("content") || null;
-
-    const fotos = [];
-
-    $("img").each((i, el) => {
-
-      const src = $(el).attr("src");
-
-      if (src && src.includes("fotos")) {
-        fotos.push(normalize(src));
       }
 
-    });
+    }
 
     return {
-      titulo,
-      precio: priceMatch ? priceMatch[0] : null,
-      descripcion,
-      fotos,
-      url
+
+      id: d.id,
+      referencia: d.ofertas_ref,
+      titulo: d.ofertas_titulo1,
+      descripcion: d.ofertas_descrip1,
+
+      precio: Number(d.ofertas_precioinmo),
+
+      tipo: d.tipo_tipo_ofer,
+
+      ciudad: d.ciudad_ciudad,
+      zona: d.zonas_zona,
+
+      habitaciones: Number(d.totalhab),
+      banos: Number(d.ofertas_banyos),
+
+      superficie: Number(d.ofertas_m_cons),
+
+      lat: Number(d.ofertas_latitud),
+      lng: Number(d.ofertas_altitud),
+
+      fotos
+
     };
 
-  } catch (e) {
+  });
 
-    console.log("Error property", url);
+  cache = list;
 
-    return null;
-
-  }
-
-}
-
-async function scrapeAll() {
-
-  cache = [];
-
-  const links = await getLinks();
-
-  console.log("Found properties:", links.length);
-
-  for (const link of links) {
-
-    const p = await scrapeProperty(link);
-
-    if (p) cache.push(p);
-
-  }
-
-  console.log("Scraped:", cache.length);
+  console.log("Propiedades cargadas:", cache.length);
 
 }
 
 app.get("/", (req, res) => {
-  res.send("SmartFinques scraper running");
+  res.send("SmartFinques API running");
 });
 
 app.get("/scrape", async (req, res) => {
 
   try {
 
-    await scrapeAll();
+    await loadXML();
 
     res.json({
       total: cache.length
     });
 
-  } catch (err) {
+  } catch (e) {
 
     res.status(500).json({
-      error: err.message
+      error: e.message
     });
 
   }
@@ -151,11 +101,15 @@ app.get("/scrape", async (req, res) => {
 });
 
 app.get("/properties", (req, res) => {
+
   res.json(cache);
+
 });
 
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log("Server running on", PORT);
+
+  console.log("Server running");
+
 });
