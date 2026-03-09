@@ -1,20 +1,18 @@
 const express = require("express");
-const axios = require("axios");
+const fs = require("fs");
 const xml2js = require("xml2js");
 
 const app = express();
-
-const XML_URL = "PON_AQUI_EL_XML_DIRECTO";
 
 let cache = [];
 
 async function loadXML() {
 
-  const response = await axios.get(XML_URL);
+  const xml = fs.readFileSync("./inmuebles.xml", "utf8");
 
   const parser = new xml2js.Parser({ explicitArray: false });
 
-  const result = await parser.parseStringPromise(response.data);
+  const result = await parser.parseStringPromise(xml);
 
   const propiedades = result.propiedades.propiedad;
 
@@ -26,19 +24,9 @@ async function loadXML() {
 
     if (p.fotos) {
 
-      if (Array.isArray(p.fotos)) {
-
-        p.fotos.forEach(f => {
-          const url = Object.values(f)[0];
-          if (url) fotos.push(url);
-        });
-
-      } else {
-
-        const url = Object.values(p.fotos)[0];
+      Object.values(p.fotos).forEach(url => {
         if (url) fotos.push(url);
-
-      }
+      });
 
     }
 
@@ -80,7 +68,7 @@ app.get("/", (req, res) => {
   res.send("SmartFinques API running");
 });
 
-app.get("/scrape", async (req, res) => {
+app.get("/load", async (req, res) => {
 
   try {
 
@@ -101,9 +89,7 @@ app.get("/scrape", async (req, res) => {
 });
 
 app.get("/properties", (req, res) => {
-
   res.json(cache);
-
 });
 
 const PORT = process.env.PORT || 10000;
