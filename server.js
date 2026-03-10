@@ -15,13 +15,13 @@ let cache = [];
 const BASE44_URL = "https://base44.app/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const BASE44_API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-// convertir a número
+// convertir número
 function num(v){
     if(!v) return 0;
     return parseFloat(v) || 0;
 }
 
-// parsear propiedad
+// convertir propiedad
 function parseProperty(p){
 
     let fotos = [];
@@ -50,12 +50,12 @@ function parseProperty(p){
     };
 }
 
-// cargar XML local
+// cargar XML
 async function loadXML(){
 
     try{
 
-        const filePath = path.join(__dirname,"inmuebles.xml");
+        const filePath = path.join(__dirname,"listado.xml");
 
         const xmlData = fs.readFileSync(filePath,"utf8");
 
@@ -78,7 +78,7 @@ async function loadXML(){
 loadXML();
 setInterval(loadXML,30*60*1000);
 
-// obtener propiedades Base44
+// obtener propiedades base44
 async function getBase44(){
 
     const res = await axios.get(BASE44_URL,{
@@ -86,6 +86,7 @@ async function getBase44(){
     });
 
     return res.data;
+
 }
 
 // crear propiedad
@@ -112,7 +113,7 @@ async function updateBase44(id,data){
 
 }
 
-// endpoint sincronización
+// sincronizar
 app.get("/sync-base44",async(req,res)=>{
 
     try{
@@ -174,7 +175,7 @@ app.get("/sync-base44",async(req,res)=>{
 
 });
 
-// endpoints API
+// endpoints
 app.get("/properties",(req,res)=>{
     res.json({
         total:cache.length,
