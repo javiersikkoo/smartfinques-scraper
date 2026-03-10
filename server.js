@@ -24,11 +24,11 @@ async function loadXML(){
   const xml = fs.readFileSync(file,"utf8");
 
   const parsed = await xml2js.parseStringPromise(xml,{
-   explicitArray:true
+   explicitArray:true,
+   mergeAttrs:true
   });
 
-  // buscamos todas las propiedades
-  const propiedades = parsed?.root?.propiedad || parsed?.propiedad || [];
+  const propiedades = parsed.propiedad || [];
 
   const results = [];
 
@@ -40,8 +40,9 @@ async function loadXML(){
 
    if(p.fotos){
     p.fotos.forEach(f=>{
-     const url = Object.values(f)[0];
-     if(url) fotos.push(url);
+      const key = Object.keys(f)[0];
+      const url = f[key]?.[0];
+      if(url) fotos.push(url);
     });
    }
 
@@ -49,7 +50,7 @@ async function loadXML(){
 
     id: d.id?.[0] || "",
     referencia: d.ofertas_ref?.[0] || "",
-    titulo: d.tipo_tipo_ofer?.[0] || "",
+    titulo: d.ofertas_titulo1?.[0] || "",
     descripcion: d.ofertas_descrip1?.[0] || "",
     precio: num(d.ofertas_precioinmo?.[0]),
     ciudad: d.ciudad_ciudad?.[0] || "",
