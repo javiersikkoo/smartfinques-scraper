@@ -3,8 +3,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const xml2js = require("xml2js");
-
-const syncBase44 = require("./syncBase44");
+const axios = require("axios");
 
 const app = express();
 app.use(cors());
@@ -13,7 +12,13 @@ const PORT = process.env.PORT || 3000;
 
 let cache = [];
 
-/* convertir valores numericos */
+/* CONFIG BASE44 */
+
+const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
+const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
+
+/* convertir numeros */
+
 function num(v){
  if(!v) return 0;
  const n = parseFloat(v);
@@ -21,6 +26,7 @@ function num(v){
 }
 
 /* cargar XML */
+
 async function loadXML(){
 
  try{
@@ -52,32 +58,25 @@ async function loadXML(){
     referencia: d.ofertas_ref?.[0] || "",
     titulo: d.ofertas_titulo1?.[0] || "",
     descripcion: d.ofertas_descrip1?.[0] || "",
+
     precio: num(d.ofertas_precioinmo?.[0]),
-    precioOriginal: num(d.ofertas_precio?.[0]),
 
     tipo: d.tipo_tipo_ofer?.[0] || "",
-    accion: d.accionoferta_accion?.[0] || "",
+    operacion: d.accionoferta_accion?.[0] || "venta",
 
     ciudad: d.ciudad_ciudad?.[0] || "",
-    provincia: d.provincias_provincia?.[0] || "",
     zona: d.zonas_zona?.[0] || "",
-    cp: d.ofertas_cp?.[0] || "",
-
-    direccion: `${d.tipocalle_tipocalle?.[0] || ""} ${d.ofertas_calle?.[0] || ""} ${d.ofertas_numero?.[0] || ""}`,
 
     habitaciones: num(d.totalhab?.[0]),
     banos: num(d.ofertas_banyos?.[0]),
 
-    superficieConstruida: num(d.ofertas_m_cons?.[0]),
-    superficieParcela: num(d.ofertas_m_parcela?.[0]),
+    superficie: num(d.ofertas_m_cons?.[0]),
+    superficie_parcela: num(d.ofertas_m_parcela?.[0]),
 
     latitud: num(d.ofertas_latitud?.[0]),
     longitud: num(d.ofertas_longitud?.[0]),
 
-    destacado: d.ofertas_destacado?.[0] === "1",
-
-    fechaAlta: d.ofertas_fecha?.[0] || "",
-    fechaActualizacion: d.ofertas_fechaact?.[0] || ""
+    disponible: true
 
    };
 
@@ -97,24 +96,87 @@ async function loadXML(){
 
 }
 
-/* cargar XML y sincronizar */
+/* sincronizar con Base44 */
+
+async function syncBase44(){
+
+ try{
+
+  if(cache.length === 0){
+   console.log("No hay propiedades para sincronizar");
+   return;
+  }
+
+  console.log("Sincronizando con Base44...");
+
+  for(const p of cache){
+
+   const inmueble = {
+
+    titulo: p.titulo,
+    descripcion: p.descripcion,
+    precio: p.precio,
+
+    ciudad: p.ciudad,
+    zona: p.zona,
+
+    tipo_inmueble: p.tipo,
+    sub_tipo_inmueble: "",
+
+    habitaciones: p.habitaciones,
+    banos: p.banos,
+
+    superficie: p.superficie,
+    superficie_parcela: p.superficie_parcela,
+
+    referencia: p.referencia,
+    operacion: p.operacion,
+
+    latitud: p.latitud,
+    longitud: p.longitud,
+
+    disponible: true
+
+   };
+
+   await axios.post(BASE44_URL, inmueble, {
+    headers:{
+     "api_key": API_KEY,
+     "Content-Type":"application/json"
+    }
+   });
+
+   console.log("Subido:", p.referencia);
+
+  }
+
+  console.log("SYNC BASE44 COMPLETADO");
+
+ }catch(err){
+
+  console.log("ERROR BASE44:", err.response?.data || err.message);
+
+ }
+
+}
+
+/* iniciar servidor */
+
 async function init(){
 
  await loadXML();
-
- console.log("Iniciando sincronización con Base44...");
 
  await syncBase44();
 
 }
 
-/* ejecutar inicio */
 init();
 
-/* sincronizar cada hora automáticamente */
+/* sincronización automática cada hora */
+
 setInterval(()=>{
 
- console.log("Sincronización automática Base44...");
+ console.log("Sync automático Base44");
 
  syncBase44();
 
@@ -154,16 +216,15 @@ app.get("/property/:id",(req,res)=>{
 
 });
 
-/* recargar XML manualmente */
+/* recargar manual */
 
 app.get("/reload", async (req,res)=>{
 
  await loadXML();
-
  await syncBase44();
 
  res.json({
-  message:"XML recargado y Base44 sincronizado",
+  message:"XML recargado y sincronizado",
   total: cache.length
  });
 
