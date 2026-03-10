@@ -6,13 +6,13 @@ const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/ent
 
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-async function sync(){
+async function syncBase44(){
 
  try{
 
   const {data} = await axios.get(API_URL);
 
-  const properties = data.properties;
+  const properties = data.properties || [];
 
   console.log("Propiedades encontradas:", properties.length);
 
@@ -57,14 +57,14 @@ async function sync(){
 
   }
 
-  console.log("SYNC COMPLETADO");
+  console.log("SYNC BASE44 COMPLETADO");
 
  }catch(err){
 
-  console.log("ERROR:", err.response?.data || err.message);
+  console.log("ERROR BASE44:", err.response?.data || err.message);
 
  }
 
 }
 
-sync();
+module.exports = syncBase44;
