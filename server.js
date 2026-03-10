@@ -4,6 +4,8 @@ const fs = require("fs");
 const path = require("path");
 const xml2js = require("xml2js");
 
+const syncBase44 = require("./syncBase44");
+
 const app = express();
 app.use(cors());
 
@@ -70,11 +72,12 @@ async function loadXML(){
     superficieParcela: num(d.ofertas_m_parcela?.[0]),
 
     latitud: num(d.ofertas_latitud?.[0]),
+    longitud: num(d.ofertas_longitud?.[0]),
 
     destacado: d.ofertas_destacado?.[0] === "1",
 
     fechaAlta: d.ofertas_fecha?.[0] || "",
-    fechaActualizacion: d.ofertas_fechaact?.[0] || "",
+    fechaActualizacion: d.ofertas_fechaact?.[0] || ""
 
    };
 
@@ -94,8 +97,28 @@ async function loadXML(){
 
 }
 
-/* cargar al iniciar */
-loadXML();
+/* cargar XML y sincronizar */
+async function init(){
+
+ await loadXML();
+
+ console.log("Iniciando sincronización con Base44...");
+
+ await syncBase44();
+
+}
+
+/* ejecutar inicio */
+init();
+
+/* sincronizar cada hora automáticamente */
+setInterval(()=>{
+
+ console.log("Sincronización automática Base44...");
+
+ syncBase44();
+
+}, 1000 * 60 * 60);
 
 /* endpoints */
 
@@ -106,16 +129,12 @@ app.get("/",(req,res)=>{
  });
 });
 
-/* todas las propiedades */
-
 app.get("/properties",(req,res)=>{
  res.json({
   total: cache.length,
   properties: cache
  });
 });
-
-/* propiedad por ID */
 
 app.get("/property/:id",(req,res)=>{
 
@@ -135,14 +154,16 @@ app.get("/property/:id",(req,res)=>{
 
 });
 
-/* recargar XML */
+/* recargar XML manualmente */
 
 app.get("/reload", async (req,res)=>{
 
  await loadXML();
 
+ await syncBase44();
+
  res.json({
-  message:"XML recargado",
+  message:"XML recargado y Base44 sincronizado",
   total: cache.length
  });
 
