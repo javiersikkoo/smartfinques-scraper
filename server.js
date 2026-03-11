@@ -12,12 +12,12 @@ const PORT = process.env.PORT || 3000;
 
 let cache = [];
 
-/* CONFIG BASE44 */
+/* BASE44 CONFIG */
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-/* convertir numeros */
+/* convertir números */
 
 function num(v){
  if(!v) return 0;
@@ -52,10 +52,26 @@ async function loadXML(){
 
    const d = p?.datos?.[0] || {};
 
+   /* leer fotos */
+
+   const fotos = [];
+
+   if(p.fotos && p.fotos[0]){
+
+    const bloque = p.fotos[0];
+
+    Object.keys(bloque).forEach(k=>{
+     const url = bloque[k]?.[0];
+     if(url) fotos.push(url);
+    });
+
+   }
+
    const property = {
 
     id: d.id?.[0] || "",
     referencia: d.ofertas_ref?.[0] || "",
+
     titulo: d.ofertas_titulo1?.[0] || "",
     descripcion: d.ofertas_descrip1?.[0] || "",
 
@@ -75,6 +91,8 @@ async function loadXML(){
 
     latitud: num(d.ofertas_latitud?.[0]),
     longitud: num(d.ofertas_longitud?.[0]),
+
+    fotos,
 
     disponible: true
 
@@ -107,7 +125,23 @@ async function syncBase44(){
    return;
   }
 
-  console.log("Sincronizando con Base44...");
+  console.log("Leyendo propiedades existentes en Base44...");
+
+  const existing = await axios.get(BASE44_URL,{
+   headers:{ api_key: API_KEY }
+  });
+
+  const existentes = existing.data || [];
+
+  const mapa = {};
+
+  existentes.forEach(e=>{
+   if(e.referencia){
+    mapa[e.referencia] = e.id;
+   }
+  });
+
+  console.log("Propiedades existentes:", existentes.length);
 
   for(const p of cache){
 
@@ -135,18 +169,39 @@ async function syncBase44(){
     latitud: p.latitud,
     longitud: p.longitud,
 
+    fotos: p.fotos || [],
+
     disponible: true
 
    };
 
-   await axios.post(BASE44_URL, inmueble, {
-    headers:{
-     "api_key": API_KEY,
-     "Content-Type":"application/json"
-    }
-   });
+   if(mapa[p.referencia]){
 
-   console.log("Subido:", p.referencia);
+    await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble,{
+     headers:{
+      api_key: API_KEY,
+      "Content-Type":"application/json"
+     }
+    });
+
+    console.log("Actualizado:", p.referencia);
+
+   }else{
+
+    await axios.post(BASE44_URL, inmueble,{
+     headers:{
+      api_key: API_KEY,
+      "Content-Type":"application/json"
+     }
+    });
+
+    console.log("Creado:", p.referencia);
+
+   }
+
+   /* pequeño delay para no saturar */
+
+   await new Promise(r => setTimeout(r,150));
 
   }
 
@@ -160,7 +215,7 @@ async function syncBase44(){
 
 }
 
-/* iniciar servidor */
+/* iniciar sistema */
 
 async function init(){
 
@@ -180,22 +235,26 @@ setInterval(()=>{
 
  syncBase44();
 
-}, 1000 * 60 * 60);
+},1000*60*60);
 
 /* endpoints */
 
 app.get("/",(req,res)=>{
+
  res.json({
   message:"API SmartFinques funcionando",
   total: cache.length
  });
+
 });
 
 app.get("/properties",(req,res)=>{
+
  res.json({
   total: cache.length,
   properties: cache
  });
+
 });
 
 app.get("/property/:id",(req,res)=>{
@@ -216,9 +275,7 @@ app.get("/property/:id",(req,res)=>{
 
 });
 
-/* recargar manual */
-
-app.get("/reload", async (req,res)=>{
+app.get("/reload",async(req,res)=>{
 
  await loadXML();
  await syncBase44();
