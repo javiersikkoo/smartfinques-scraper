@@ -25,6 +25,12 @@ function num(v){
  return isNaN(n) ? 0 : n;
 }
 
+/* delay anti rate-limit */
+
+function delay(ms){
+ return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /* cargar XML */
 
 async function loadXML(){
@@ -175,33 +181,41 @@ async function syncBase44(){
 
    };
 
-   if(mapa[p.referencia]){
+   try{
 
-    await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble,{
-     headers:{
-      api_key: API_KEY,
-      "Content-Type":"application/json"
-     }
-    });
+    if(mapa[p.referencia]){
 
-    console.log("Actualizado:", p.referencia);
+     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble,{
+      headers:{
+       api_key: API_KEY,
+       "Content-Type":"application/json"
+      }
+     });
 
-   }else{
+     console.log("Actualizado:", p.referencia);
 
-    await axios.post(BASE44_URL, inmueble,{
-     headers:{
-      api_key: API_KEY,
-      "Content-Type":"application/json"
-     }
-    });
+    }else{
 
-    console.log("Creado:", p.referencia);
+     await axios.post(BASE44_URL, inmueble,{
+      headers:{
+       api_key: API_KEY,
+       "Content-Type":"application/json"
+      }
+     });
+
+     console.log("Creado:", p.referencia);
+
+    }
+
+   }catch(err){
+
+    console.log("Error propiedad:", p.referencia);
 
    }
 
-   /* pequeño delay para no saturar */
+   /* delay para evitar rate limit */
 
-   await new Promise(r => setTimeout(r,150));
+   await delay(1000);
 
   }
 
