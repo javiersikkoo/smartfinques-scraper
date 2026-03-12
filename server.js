@@ -25,8 +25,6 @@ const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
 const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
 
-/* cache de zonas ya calculadas */
-
 let geoCache = {};
 
 /* ================================
@@ -115,8 +113,6 @@ async function loadXML(){
 
    const d = p?.datos?.[0] || {};
 
-   /* leer fotos */
-
    const fotos = [];
 
    if(p.fotos && p.fotos[0]){
@@ -135,8 +131,6 @@ async function loadXML(){
 
    const ciudad = d.ciudad_ciudad?.[0] || "";
    const zona = d.zonas_zona?.[0] || "";
-
-   /* si falta longitud usamos geocoder */
 
    if(lat && !lng){
 
@@ -254,9 +248,9 @@ async function syncBase44(){
     latitud: p.latitud,
     longitud: p.longitud,
 
-    fotos: p.fotos || [],
+    /* TODAS LAS FOTOS DEL XML */
+    fotos: (p.fotos || []).join(","),
 
-    /* SOLUCION ERROR BASE44 */
     caracteristicas_extra: "",
 
     disponible: true
@@ -295,8 +289,6 @@ async function syncBase44(){
     console.log(err.response?.data || err.message);
 
    }
-
-   /* delay para evitar rate limit */
 
    await delay(1200);
 
