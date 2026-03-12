@@ -32,9 +32,9 @@ function delay(ms){
  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/* obtener coordenadas aproximadas */
+/* obtener coordenadas */
 
-async function getCoordinates(ciudad, zona){
+async function getCoordinates(ciudad,zona){
 
  try{
 
@@ -49,6 +49,10 @@ async function getCoordinates(ciudad, zona){
   if(!query){
    return {latitud:0,longitud:0};
   }
+
+  /* evitar rate limit */
+
+  await delay(1200);
 
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
@@ -67,14 +71,20 @@ async function getCoordinates(ciudad, zona){
 
    geoCache[key] = coords;
 
-   await delay(500);
-
    return coords;
   }
 
   return {latitud:0,longitud:0};
 
  }catch(err){
+
+  if(err.response?.status === 429){
+
+   console.log("Rate limit geocoder, esperando...");
+
+   await delay(2000);
+
+  }
 
   console.log("Error geocoding:",err.message);
 
@@ -132,7 +142,7 @@ async function loadXML(){
    const ciudad = d.ciudad_ciudad?.[0] || "";
    const zona = d.zonas_zona?.[0] || "";
 
-   /* si no hay coordenadas completas */
+   /* si faltan coordenadas */
 
    if(!latitud || !longitud){
 
@@ -308,11 +318,12 @@ async function init(){
 
 init();
 
-/* sync automático */
+/* sync automático cada hora */
 
 setInterval(()=>{
 
  console.log("Sync automático Base44");
+
  syncBase44();
 
 },1000*60*60);
