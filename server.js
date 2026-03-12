@@ -22,6 +22,10 @@ const ZONES_FILE = path.join(__dirname,"zones.json");
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
+/* GEOCODER */
+
+const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
+
 /* utilidades */
 
 function num(v){
@@ -34,14 +38,13 @@ function delay(ms){
  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/* cargar cache de zonas */
+/* cargar cache */
 
 function loadZones(){
 
  if(fs.existsSync(ZONES_FILE)){
 
-  const data = fs.readFileSync(ZONES_FILE,"utf8");
-  geoCache = JSON.parse(data);
+  geoCache = JSON.parse(fs.readFileSync(ZONES_FILE,"utf8"));
 
   console.log("Zonas cargadas:",Object.keys(geoCache).length);
 
@@ -57,7 +60,7 @@ function saveZones(){
 
 }
 
-/* geocoder (solo si no existe zona) */
+/* geocoder estable */
 
 async function getCoordinates(ciudad,zona){
 
@@ -71,28 +74,24 @@ async function getCoordinates(ciudad,zona){
 
   console.log("Calculando zona:",key);
 
-  await delay(1500);
+  const query = `${zona} ${ciudad} Spain`;
 
-  const query = `${zona} ${ciudad}`;
+  const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(query)}&key=${GEOCODER_KEY}&limit=1`;
 
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+  const res = await axios.get(url);
 
-  const res = await axios.get(url,{
-   headers:{
-    "User-Agent":"smartfinques-scraper"
-   }
-  });
-
-  if(res.data && res.data.length){
+  if(res.data.results.length){
 
    const coords = {
-    latitud: parseFloat(res.data[0].lat),
-    longitud: parseFloat(res.data[0].lon)
+    latitud: res.data.results[0].geometry.lat,
+    longitud: res.data.results[0].geometry.lng
    };
 
    geoCache[key] = coords;
 
    saveZones();
+
+   await delay(500);
 
    return coords;
 
