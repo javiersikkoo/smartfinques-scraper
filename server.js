@@ -13,12 +13,16 @@ const PORT = process.env.PORT || 3000;
 let cache = [];
 let geoCache = {};
 
-/* BASE44 CONFIG */
+/* archivos */
+
+const ZONES_FILE = path.join(__dirname,"zones.json");
+
+/* BASE44 */
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-/* convertir números */
+/* utilidades */
 
 function num(v){
  if(!v) return 0;
@@ -26,33 +30,50 @@ function num(v){
  return isNaN(n) ? 0 : n;
 }
 
-/* delay */
-
 function delay(ms){
  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/* obtener coordenadas */
+/* cargar cache de zonas */
+
+function loadZones(){
+
+ if(fs.existsSync(ZONES_FILE)){
+
+  const data = fs.readFileSync(ZONES_FILE,"utf8");
+  geoCache = JSON.parse(data);
+
+  console.log("Zonas cargadas:",Object.keys(geoCache).length);
+
+ }
+
+}
+
+/* guardar cache */
+
+function saveZones(){
+
+ fs.writeFileSync(ZONES_FILE,JSON.stringify(geoCache,null,2));
+
+}
+
+/* geocoder (solo si no existe zona) */
 
 async function getCoordinates(ciudad,zona){
 
+ const key = `${ciudad}-${zona}`;
+
+ if(geoCache[key]){
+  return geoCache[key];
+ }
+
  try{
 
-  const key = `${ciudad}-${zona}`;
+  console.log("Calculando zona:",key);
 
-  if(geoCache[key]){
-   return geoCache[key];
-  }
+  await delay(1500);
 
-  const query = `${zona || ""} ${ciudad || ""}`.trim();
-
-  if(!query){
-   return {latitud:0,longitud:0};
-  }
-
-  /* evitar rate limit */
-
-  await delay(1200);
+  const query = `${zona} ${ciudad}`;
 
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
 
@@ -62,7 +83,7 @@ async function getCoordinates(ciudad,zona){
    }
   });
 
-  if(res.data && res.data.length > 0){
+  if(res.data && res.data.length){
 
    const coords = {
     latitud: parseFloat(res.data[0].lat),
@@ -71,26 +92,19 @@ async function getCoordinates(ciudad,zona){
 
    geoCache[key] = coords;
 
-   return coords;
-  }
+   saveZones();
 
-  return {latitud:0,longitud:0};
+   return coords;
+
+  }
 
  }catch(err){
 
-  if(err.response?.status === 429){
-
-   console.log("Rate limit geocoder, esperando...");
-
-   await delay(2000);
-
-  }
-
-  console.log("Error geocoding:",err.message);
-
-  return {latitud:0,longitud:0};
+  console.log("Error geocoder:",err.message);
 
  }
+
+ return {latitud:0,longitud:0};
 
 }
 
@@ -121,8 +135,6 @@ async function loadXML(){
 
    const d = p?.datos?.[0] || {};
 
-   /* fotos */
-
    const fotos = [];
 
    if(p.fotos && p.fotos[0]){
@@ -141,8 +153,6 @@ async function loadXML(){
 
    const ciudad = d.ciudad_ciudad?.[0] || "";
    const zona = d.zonas_zona?.[0] || "";
-
-   /* si faltan coordenadas */
 
    if(!latitud || !longitud){
 
@@ -190,74 +200,63 @@ async function loadXML(){
 
   cache = results;
 
-  console.log("Propiedades cargadas:", cache.length);
+  console.log("Propiedades cargadas:",cache.length);
 
  }catch(e){
 
-  console.log("Error leyendo XML:", e.message);
+  console.log("Error XML:",e.message);
 
  }
 
 }
 
-/* sincronizar con Base44 */
+/* sync base44 */
 
 async function syncBase44(){
 
  try{
 
-  if(cache.length === 0){
-   console.log("No hay propiedades para sincronizar");
-   return;
-  }
-
-  console.log("Leyendo propiedades existentes en Base44...");
+  if(cache.length===0) return;
 
   const existing = await axios.get(BASE44_URL,{
    headers:{ api_key: API_KEY }
   });
 
-  const existentes = existing.data || [];
-
   const mapa = {};
 
-  existentes.forEach(e=>{
-   if(e.referencia){
-    mapa[e.referencia] = e.id;
-   }
+  (existing.data||[]).forEach(e=>{
+   if(e.referencia) mapa[e.referencia]=e.id;
   });
-
-  console.log("Propiedades existentes:", existentes.length);
 
   for(const p of cache){
 
    const inmueble = {
 
-    titulo: p.titulo,
-    descripcion: p.descripcion,
-    precio: p.precio,
+    titulo:p.titulo,
+    descripcion:p.descripcion,
+    precio:p.precio,
 
-    ciudad: p.ciudad,
-    zona: p.zona,
+    ciudad:p.ciudad,
+    zona:p.zona,
 
-    tipo_inmueble: p.tipo,
-    sub_tipo_inmueble: "",
+    tipo_inmueble:p.tipo,
+    sub_tipo_inmueble:"",
 
-    habitaciones: p.habitaciones,
-    banos: p.banos,
+    habitaciones:p.habitaciones,
+    banos:p.banos,
 
-    superficie: p.superficie,
-    superficie_parcela: p.superficie_parcela,
+    superficie:p.superficie,
+    superficie_parcela:p.superficie_parcela,
 
-    referencia: p.referencia,
-    operacion: p.operacion,
+    referencia:p.referencia,
+    operacion:p.operacion,
 
-    latitud: p.latitud,
-    longitud: p.longitud,
+    latitud:p.latitud,
+    longitud:p.longitud,
 
-    fotos: p.fotos || [],
+    fotos:p.fotos||[],
 
-    disponible: true
+    disponible:true
 
    };
 
@@ -265,31 +264,25 @@ async function syncBase44(){
 
     if(mapa[p.referencia]){
 
-     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble,{
-      headers:{
-       api_key: API_KEY,
-       "Content-Type":"application/json"
-      }
+     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`,inmueble,{
+      headers:{ api_key:API_KEY,"Content-Type":"application/json"}
      });
 
-     console.log("Actualizado:", p.referencia);
+     console.log("Actualizado:",p.referencia);
 
     }else{
 
-     await axios.post(BASE44_URL, inmueble,{
-      headers:{
-       api_key: API_KEY,
-       "Content-Type":"application/json"
-      }
+     await axios.post(BASE44_URL,inmueble,{
+      headers:{ api_key:API_KEY,"Content-Type":"application/json"}
      });
 
-     console.log("Creado:", p.referencia);
+     console.log("Creado:",p.referencia);
 
     }
 
    }catch(err){
 
-    console.log("Error propiedad:", p.referencia);
+    console.log("Error propiedad:",p.referencia);
 
    }
 
@@ -297,32 +290,35 @@ async function syncBase44(){
 
   }
 
-  console.log("SYNC BASE44 COMPLETADO");
+  console.log("SYNC COMPLETADO");
 
  }catch(err){
 
-  console.log("ERROR BASE44:", err.response?.data || err.message);
+  console.log("ERROR BASE44:",err.response?.data||err.message);
 
  }
 
 }
 
-/* iniciar */
+/* inicio */
 
 async function init(){
 
+ loadZones();
+
  await loadXML();
+
  await syncBase44();
 
 }
 
 init();
 
-/* sync automático cada hora */
+/* sync automático */
 
 setInterval(()=>{
 
- console.log("Sync automático Base44");
+ console.log("Sync automático");
 
  syncBase44();
 
@@ -334,7 +330,7 @@ app.get("/",(req,res)=>{
 
  res.json({
   message:"API SmartFinques funcionando",
-  total: cache.length
+  total:cache.length
  });
 
 });
@@ -342,27 +338,9 @@ app.get("/",(req,res)=>{
 app.get("/properties",(req,res)=>{
 
  res.json({
-  total: cache.length,
-  properties: cache
+  total:cache.length,
+  properties:cache
  });
-
-});
-
-app.get("/property/:id",(req,res)=>{
-
- const id = req.params.id;
-
- const property = cache.find(p =>
-  p.id == id || p.referencia == id
- );
-
- if(!property){
-  return res.status(404).json({
-   error:"Propiedad no encontrada"
-  });
- }
-
- res.json(property);
 
 });
 
@@ -372,8 +350,8 @@ app.get("/reload",async(req,res)=>{
  await syncBase44();
 
  res.json({
-  message:"XML recargado y sincronizado",
-  total: cache.length
+  message:"Recargado",
+  total:cache.length
  });
 
 });
