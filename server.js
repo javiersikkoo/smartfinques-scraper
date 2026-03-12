@@ -11,6 +11,7 @@ app.use(cors());
 const PORT = process.env.PORT || 3000;
 
 let cache = [];
+let geoCache = {};
 
 /* BASE44 CONFIG */
 
@@ -25,10 +26,62 @@ function num(v){
  return isNaN(n) ? 0 : n;
 }
 
-/* delay anti rate-limit */
+/* delay */
 
 function delay(ms){
  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/* obtener coordenadas aproximadas */
+
+async function getCoordinates(ciudad, zona){
+
+ try{
+
+  const key = `${ciudad}-${zona}`;
+
+  if(geoCache[key]){
+   return geoCache[key];
+  }
+
+  const query = `${zona || ""} ${ciudad || ""}`.trim();
+
+  if(!query){
+   return {latitud:0,longitud:0};
+  }
+
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+
+  const res = await axios.get(url,{
+   headers:{
+    "User-Agent":"smartfinques-scraper"
+   }
+  });
+
+  if(res.data && res.data.length > 0){
+
+   const coords = {
+    latitud: parseFloat(res.data[0].lat),
+    longitud: parseFloat(res.data[0].lon)
+   };
+
+   geoCache[key] = coords;
+
+   await delay(500);
+
+   return coords;
+  }
+
+  return {latitud:0,longitud:0};
+
+ }catch(err){
+
+  console.log("Error geocoding:",err.message);
+
+  return {latitud:0,longitud:0};
+
+ }
+
 }
 
 /* cargar XML */
@@ -54,11 +107,11 @@ async function loadXML(){
 
   const results = [];
 
-  propiedades.forEach(p=>{
+  for(const p of propiedades){
 
    const d = p?.datos?.[0] || {};
 
-   /* leer fotos */
+   /* fotos */
 
    const fotos = [];
 
@@ -70,6 +123,23 @@ async function loadXML(){
      const url = bloque[k]?.[0];
      if(url) fotos.push(url);
     });
+
+   }
+
+   let latitud = num(d.ofertas_latitud?.[0]);
+   let longitud = num(d.ofertas_longitud?.[0]);
+
+   const ciudad = d.ciudad_ciudad?.[0] || "";
+   const zona = d.zonas_zona?.[0] || "";
+
+   /* si no hay coordenadas completas */
+
+   if(!latitud || !longitud){
+
+    const coords = await getCoordinates(ciudad,zona);
+
+    if(!latitud) latitud = coords.latitud;
+    if(!longitud) longitud = coords.longitud;
 
    }
 
@@ -86,8 +156,8 @@ async function loadXML(){
     tipo: d.tipo_tipo_ofer?.[0] || "",
     operacion: d.accionoferta_accion?.[0] || "venta",
 
-    ciudad: d.ciudad_ciudad?.[0] || "",
-    zona: d.zonas_zona?.[0] || "",
+    ciudad,
+    zona,
 
     habitaciones: num(d.totalhab?.[0]),
     banos: num(d.ofertas_banyos?.[0]),
@@ -95,8 +165,8 @@ async function loadXML(){
     superficie: num(d.ofertas_m_cons?.[0]),
     superficie_parcela: num(d.ofertas_m_parcela?.[0]),
 
-    latitud: num(d.ofertas_latitud?.[0]),
-    longitud: num(d.ofertas_longitud?.[0]),
+    latitud,
+    longitud,
 
     fotos,
 
@@ -106,7 +176,7 @@ async function loadXML(){
 
    results.push(property);
 
-  });
+  }
 
   cache = results;
 
@@ -213,8 +283,6 @@ async function syncBase44(){
 
    }
 
-   /* delay para evitar rate limit */
-
    await delay(1000);
 
   }
@@ -229,24 +297,22 @@ async function syncBase44(){
 
 }
 
-/* iniciar sistema */
+/* iniciar */
 
 async function init(){
 
  await loadXML();
-
  await syncBase44();
 
 }
 
 init();
 
-/* sincronización automática cada hora */
+/* sync automático */
 
 setInterval(()=>{
 
  console.log("Sync automático Base44");
-
  syncBase44();
 
 },1000*60*60);
