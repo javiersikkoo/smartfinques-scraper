@@ -44,7 +44,7 @@ function delay(ms){
 }
 
 /* ================================
-   GEOCODER (solo si falta longitud)
+   GEOCODER
 ================================ */
 
 async function geocode(city, zone){
@@ -115,6 +115,8 @@ async function loadXML(){
 
    const d = p?.datos?.[0] || {};
 
+   /* leer fotos */
+
    const fotos = [];
 
    if(p.fotos && p.fotos[0]){
@@ -134,7 +136,7 @@ async function loadXML(){
    const ciudad = d.ciudad_ciudad?.[0] || "";
    const zona = d.zonas_zona?.[0] || "";
 
-   /* si no hay longitud usamos geocoder */
+   /* si falta longitud usamos geocoder */
 
    if(lat && !lng){
 
@@ -254,6 +256,9 @@ async function syncBase44(){
 
     fotos: p.fotos || [],
 
+    /* SOLUCION ERROR BASE44 */
+    caracteristicas_extra: "",
+
     disponible: true
 
    };
@@ -291,6 +296,8 @@ async function syncBase44(){
 
    }
 
+   /* delay para evitar rate limit */
+
    await delay(1200);
 
   }
@@ -318,7 +325,7 @@ async function init(){
 
 init();
 
-/* sync cada hora */
+/* sincronización automática cada hora */
 
 setInterval(()=>{
 
