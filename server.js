@@ -12,24 +12,18 @@ const PORT = process.env.PORT || 3000;
 
 let cache = [];
 
-/* ================================
-   BASE44 CONFIG
-================================ */
+/* BASE44 CONFIG */
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-/* ================================
-   GEOCODER CONFIG
-================================ */
+/* GEOCODER */
 
 const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
 
 let geoCache = {};
 
-/* ================================
-   UTILIDADES
-================================ */
+/* UTILIDADES */
 
 function num(v){
  if(!v) return 0;
@@ -41,9 +35,7 @@ function delay(ms){
  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/* ================================
-   GEOCODER
-================================ */
+/* GEOCODER */
 
 async function geocode(city, zone){
 
@@ -84,9 +76,7 @@ async function geocode(city, zone){
 
 }
 
-/* ================================
-   CARGAR XML
-================================ */
+/* CARGAR XML */
 
 async function loadXML(){
 
@@ -191,9 +181,7 @@ async function loadXML(){
 
 }
 
-/* ================================
-   SINCRONIZAR BASE44
-================================ */
+/* SINCRONIZAR BASE44 */
 
 async function syncBase44(){
 
@@ -248,8 +236,8 @@ async function syncBase44(){
     latitud: p.latitud,
     longitud: p.longitud,
 
-    /* TODAS LAS FOTOS DEL XML */
-    fotos: (p.fotos || []).join(","),
+    /* TODAS LAS FOTOS COMO LISTA */
+    fotos: p.fotos || [],
 
     caracteristicas_extra: "",
 
@@ -304,9 +292,7 @@ async function syncBase44(){
 
 }
 
-/* ================================
-   INIT
-================================ */
+/* INIT */
 
 async function init(){
 
@@ -317,7 +303,7 @@ async function init(){
 
 init();
 
-/* sincronización automática cada hora */
+/* SYNC AUTOMATICO */
 
 setInterval(()=>{
 
@@ -327,9 +313,7 @@ setInterval(()=>{
 
 },1000*60*60);
 
-/* ================================
-   ENDPOINTS
-================================ */
+/* ENDPOINTS */
 
 app.get("/",(req,res)=>{
 
