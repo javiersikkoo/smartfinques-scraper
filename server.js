@@ -10,57 +10,45 @@ app.use(cors())
 const PORT = process.env.PORT || 3000
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
+const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7"
 
 let propiedades = []
 
-// Archivo local para cache de zonas
-const CACHE_FILE = "zonasCache.json"
-
-// Función delay
 function delay(ms){
- return new Promise(r=>setTimeout(r,ms))
+ return new Promise(r => setTimeout(r, ms))
 }
 
-// Leer cache desde archivo
-function leerCache(){
- try{
-  if(fs.existsSync(CACHE_FILE)){
-   return JSON.parse(fs.readFileSync(CACHE_FILE,"utf8"))
-  }
- }catch(e){
-  console.log("Error leyendo archivo cache:", e.message)
- }
- return []
-}
-
-// Guardar cache en archivo
-function guardarCache(zonas){
- try{
-  fs.writeFileSync(CACHE_FILE, JSON.stringify(zonas, null, 2), "utf8")
- }catch(e){
-  console.log("Error guardando archivo cache:", e.message)
- }
-}
-
-// Buscar zona en cache
+// ---------------- ZonaCache ----------------
 async function buscarZonaCache(clave){
- const zonas = leerCache()
- return zonas.find(z=>z.clave === clave) || null
+ try{
+  const res = await axios.get(ZONA_URL, { headers:{ api_key: API_KEY } })
+  const zonas = res.data || []
+  return zonas.find(z => z.clave === clave) || null
+ }catch(e){
+  console.log("Error leyendo cache zonas:", e.message)
+  return null
+ }
 }
 
-// Guardar zona en cache
 async function guardarZonaCache(data){
- const zonas = leerCache()
- const index = zonas.findIndex(z=>z.clave===data.clave)
- if(index >=0){
-  zonas[index] = data
- }else{
-  zonas.push(data)
+ try{
+  const existente = await buscarZonaCache(data.clave)
+  if(existente){
+   // Si ya existe, no hacemos POST duplicado
+   return
+  }
+  await axios.post(ZONA_URL, data, {
+   headers:{
+    api_key: API_KEY,
+    "Content-Type":"application/json"
+   }
+  })
+  console.log("Zona guardada en cache:", data.clave)
+ }catch(e){
+  console.log("Error guardando zona cache:", e.message)
  }
- guardarCache(zonas)
- console.log("Zona guardada en cache:", data.clave)
 }
 
 // Geocoding
@@ -95,12 +83,12 @@ async function geocode(ciudad, zona){
  return null
 }
 
-// Cargar XML
+// ---------------- Cargar XML ----------------
 async function cargarXML(){
  const xml = fs.readFileSync("listado.xml","utf8")
  const parsed = await xml2js.parseStringPromise(xml,{explicitArray:true})
  const props = parsed?.propiedades?.propiedad || []
- const results=[]
+ const results = []
 
  for(const p of props){
   const d=p?.datos?.[0] || {}
@@ -118,7 +106,6 @@ async function cargarXML(){
   const ciudad=d.ciudad_ciudad?.[0] || ""
   const zona=d.zonas_zona?.[0] || ""
 
-  // Hacer geocoding si lat o lng son 0 o nulos
   if(!lat || !lng){
    const geo=await geocode(ciudad,zona)
    if(geo){
@@ -127,7 +114,7 @@ async function cargarXML(){
    }
   }
 
-  const property={
+  const property = {
    titulo:d.ofertas_titulo1?.[0] || "",
    descripcion:d.ofertas_descrip1?.[0] || "",
    precio:parseFloat(d.ofertas_precioinmo?.[0] || 0),
@@ -148,30 +135,39 @@ async function cargarXML(){
   results.push(property)
  }
 
- propiedades=results
- console.log("Propiedades cargadas:",propiedades.length)
+ propiedades = results
+ console.log("Propiedades cargadas:", propiedades.length)
 }
 
-// Sincronizar con Base44
+// ---------------- Sync Base44 ----------------
 async function syncBase44(){
- for(const p of propiedades){
-  try{
-   await axios.post(BASE44_URL,p,{
+ try{
+  // Traemos todos los inmuebles de Base44 para no duplicar
+  const res = await axios.get(BASE44_URL, { headers:{ api_key: API_KEY } })
+  const existentes = res.data || []
+
+  for(const p of propiedades){
+   const existe = existentes.find(i => i.referencia === p.referencia)
+   if(existe){
+    console.log("Ya existe en Base44, no se sube:", p.referencia)
+    continue
+   }
+
+   await axios.post(BASE44_URL, p, {
     headers:{
-     api_key:API_KEY,
+     api_key: API_KEY,
      "Content-Type":"application/json"
     }
    })
-   console.log("Enviado:",p.referencia)
-  }catch(e){
-   console.log("Error propiedad:",p.referencia)
-   console.log(e.response?.data || e.message)
+   console.log("Enviado:", p.referencia)
+   await delay(700)
   }
-  await delay(700)
+ }catch(e){
+  console.log("Error syncBase44:", e.response?.data || e.message)
  }
 }
 
-// Inicialización
+// ---------------- Init ----------------
 async function init(){
  await cargarXML()
  await syncBase44()
