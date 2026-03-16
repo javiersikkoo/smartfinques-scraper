@@ -12,9 +12,8 @@ const PORT = process.env.PORT || 3000
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
 
-const API_KEY = "TU_API_KEY"
-
-const GEOCODER_KEY = "TU_GEOCODER_KEY"
+const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
+const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7"
 
 let propiedades = []
 
@@ -36,6 +35,7 @@ async function buscarZonaCache(clave){
 
  }catch(e){
 
+  console.log("Error leyendo cache zonas")
   return null
 
  }
@@ -53,7 +53,14 @@ async function guardarZonaCache(data){
    }
   })
 
- }catch(e){}
+  console.log("Zona guardada en cache:",data.clave)
+
+ }catch(e){
+
+  console.log("Error guardando zona cache")
+
+ }
+
 }
 
 async function geocode(ciudad,zona){
@@ -72,6 +79,8 @@ async function geocode(ciudad,zona){
  }
 
  try{
+
+  console.log("Geocoding:",clave)
 
   const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zona+" "+ciudad+" Spain")}&key=${GEOCODER_KEY}`
 
@@ -94,13 +103,24 @@ async function geocode(ciudad,zona){
     longitud:coords.lng
    })
 
+   await delay(500)
+
    return coords
 
   }
 
  }catch(e){
 
-  console.log("Error geocoder")
+  if(e.response?.status === 429){
+
+   console.log("Rate limit geocoder, esperando...")
+   await delay(2000)
+
+  }else{
+
+   console.log("Error geocoder:",e.message)
+
+  }
 
  }
 
@@ -174,12 +194,12 @@ async function cargarXML(){
 
    superficie:parseFloat(d.ofertas_m_cons?.[0] || 0),
 
-   latitud:lat,
-   longitud:lng,
+   latitud:lat || null,
+   longitud:lng || null,
 
    referencia:d.ofertas_ref?.[0] || "",
 
-   fotos,
+   fotos:fotos || [],
 
    disponible:true
 
@@ -212,11 +232,12 @@ async function syncBase44(){
 
   }catch(e){
 
-   console.log("Error:",p.referencia)
+   console.log("Error propiedad:",p.referencia)
+   console.log(e.response?.data || e.message)
 
   }
 
-  await delay(600)
+  await delay(700)
 
  }
 
