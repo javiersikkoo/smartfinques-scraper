@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 let cache = [];
 
-/* BASE44 CONFIG */
+/* BASE44 */
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
@@ -23,61 +23,80 @@ const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
 
 /* GEO CACHE FILE */
 
-const GEO_FILE = path.join(__dirname,"geocache.json");
-
-/* CARGAR CACHE SI EXISTE */
+const GEO_FILE = path.join(__dirname, "geocache.json");
 
 let geoCache = {};
 
-try{
+/* CARGAR CACHE */
 
- if(fs.existsSync(GEO_FILE)){
-  const data = fs.readFileSync(GEO_FILE,"utf8");
-  geoCache = JSON.parse(data);
+try {
+
+ if (fs.existsSync(GEO_FILE)) {
+  geoCache = JSON.parse(fs.readFileSync(GEO_FILE, "utf8"));
  }
 
  console.log("GeoCache cargado:", Object.keys(geoCache).length);
 
-}catch{
+} catch (err) {
 
+ console.log("Error cargando geocache:", err.message);
  geoCache = {};
 
 }
 
 /* GUARDAR CACHE */
 
-function saveGeoCache(){
+function saveGeoCache() {
 
- fs.writeFileSync(
-  GEO_FILE,
-  JSON.stringify(geoCache,null,2)
- );
+ try {
 
- console.log("GeoCache guardado");
+  fs.writeFileSync(
+   GEO_FILE,
+   JSON.stringify(geoCache, null, 2),
+   "utf8"
+  );
+
+  console.log("GeoCache guardado:", Object.keys(geoCache).length);
+
+ } catch (err) {
+
+  console.log("Error guardando geocache:", err.message);
+
+ }
 
 }
 
 /* UTILIDADES */
 
-function num(v){
- if(!v) return 0;
+function num(v) {
+
+ if (!v) return 0;
+
  const n = parseFloat(v);
+
  return isNaN(n) ? 0 : n;
+
 }
 
-function delay(ms){
+function delay(ms) {
+
  return new Promise(resolve => setTimeout(resolve, ms));
+
 }
 
 /* GEOCODER */
 
-async function geocode(city, zone){
+async function geocode(city, zone) {
 
  const key = `${city}-${zone}`;
 
- if(geoCache[key]) return geoCache[key];
+ if (geoCache[key]) {
 
- try{
+  return geoCache[key];
+
+ }
+
+ try {
 
   console.log("Calculando zona:", key);
 
@@ -87,7 +106,7 @@ async function geocode(city, zone){
 
   const result = res.data.results?.[0];
 
-  if(result){
+  if (result) {
 
    const coords = {
     lat: result.geometry.lat,
@@ -98,11 +117,13 @@ async function geocode(city, zone){
 
    saveGeoCache();
 
+   await delay(300);
+
    return coords;
 
   }
 
- }catch(err){
+ } catch (err) {
 
   console.log("Error geocoder:", err.response?.data || err.message);
 
@@ -114,41 +135,48 @@ async function geocode(city, zone){
 
 /* CARGAR XML */
 
-async function loadXML(){
+async function loadXML() {
 
- try{
+ try {
 
-  const file = path.join(__dirname,"listado.xml");
+  const file = path.join(__dirname, "listado.xml");
 
-  if(!fs.existsSync(file)){
+  if (!fs.existsSync(file)) {
+
    console.log("XML no encontrado");
    return;
+
   }
 
-  const xml = fs.readFileSync(file,"utf8");
+  const xml = fs.readFileSync(file, "utf8");
 
-  const parsed = await xml2js.parseStringPromise(xml,{
-   explicitArray:true
+  const parsed = await xml2js.parseStringPromise(xml, {
+   explicitArray: true
   });
 
   const propiedades = parsed?.propiedades?.propiedad || [];
 
   const results = [];
 
-  for(const p of propiedades){
+  for (const p of propiedades) {
 
    const d = p?.datos?.[0] || {};
 
+   /* FOTOS */
+
    const fotos = [];
 
-   if(p.fotos && p.fotos[0]){
+   if (p.fotos) {
 
-    const bloque = p.fotos[0];
+    for (const bloque of p.fotos) {
 
-    Object.keys(bloque).forEach(k=>{
-     const url = bloque[k]?.[0];
-     if(url) fotos.push(url);
-    });
+     const key = Object.keys(bloque)[0];
+
+     const url = bloque[key]?.[0];
+
+     if (url) fotos.push(url);
+
+    }
 
    }
 
@@ -158,16 +186,18 @@ async function loadXML(){
    const ciudad = d.ciudad_ciudad?.[0] || "";
    const zona = d.zonas_zona?.[0] || "";
 
-   if(lat && !lng){
+   if (lat && !lng) {
 
     const geo = await geocode(ciudad, zona);
 
-    if(geo){
+    if (geo) {
+
      lat = geo.lat;
      lng = geo.lng;
+
     }
 
-    await delay(1000);
+    await delay(800);
 
    }
 
@@ -210,7 +240,7 @@ async function loadXML(){
 
   console.log("Propiedades cargadas:", cache.length);
 
- }catch(e){
+ } catch (e) {
 
   console.log("Error leyendo XML:", e.message);
 
@@ -220,34 +250,40 @@ async function loadXML(){
 
 /* SINCRONIZAR BASE44 */
 
-async function syncBase44(){
+async function syncBase44() {
 
- try{
+ try {
 
-  if(cache.length === 0){
+  if (cache.length === 0) {
+
    console.log("No hay propiedades para sincronizar");
    return;
+
   }
 
   console.log("Leyendo propiedades existentes en Base44...");
 
-  const existing = await axios.get(BASE44_URL,{
-   headers:{ api_key: API_KEY }
+  const existing = await axios.get(BASE44_URL, {
+   headers: { api_key: API_KEY }
   });
 
   const existentes = existing.data || [];
 
   const mapa = {};
 
-  existentes.forEach(e=>{
-   if(e.referencia){
+  existentes.forEach(e => {
+
+   if (e.referencia) {
+
     mapa[e.referencia] = e.id;
+
    }
+
   });
 
   console.log("Propiedades existentes:", existentes.length);
 
-  for(const p of cache){
+  for (const p of cache) {
 
    const inmueble = {
 
@@ -273,7 +309,7 @@ async function syncBase44(){
     latitud: p.latitud,
     longitud: p.longitud,
 
-    fotos: p.fotos || [],
+    fotos: p.fotos,
 
     caracteristicas_extra: "",
 
@@ -281,25 +317,25 @@ async function syncBase44(){
 
    };
 
-   try{
+   try {
 
-    if(mapa[p.referencia]){
+    if (mapa[p.referencia]) {
 
-     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble,{
-      headers:{
+     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble, {
+      headers: {
        api_key: API_KEY,
-       "Content-Type":"application/json"
+       "Content-Type": "application/json"
       }
      });
 
      console.log("Actualizado:", p.referencia);
 
-    }else{
+    } else {
 
-     await axios.post(BASE44_URL, inmueble,{
-      headers:{
+     await axios.post(BASE44_URL, inmueble, {
+      headers: {
        api_key: API_KEY,
-       "Content-Type":"application/json"
+       "Content-Type": "application/json"
       }
      });
 
@@ -307,20 +343,19 @@ async function syncBase44(){
 
     }
 
-   }catch(err){
+   } catch (err) {
 
     console.log("Error propiedad:", p.referencia);
-    console.log(err.response?.data || err.message);
 
    }
 
-   await delay(1200);
+   await delay(900);
 
   }
 
   console.log("SYNC BASE44 COMPLETADO");
 
- }catch(err){
+ } catch (err) {
 
   console.log("ERROR BASE44:", err.response?.data || err.message);
 
@@ -330,7 +365,7 @@ async function syncBase44(){
 
 /* INIT */
 
-async function init(){
+async function init() {
 
  await loadXML();
  await syncBase44();
@@ -341,26 +376,26 @@ init();
 
 /* SYNC AUTOMATICO */
 
-setInterval(()=>{
+setInterval(() => {
 
  console.log("Sync automático Base44");
 
  syncBase44();
 
-},1000*60*60);
+}, 1000 * 60 * 60);
 
 /* ENDPOINTS */
 
-app.get("/",(req,res)=>{
+app.get("/", (req, res) => {
 
  res.json({
-  message:"API SmartFinques funcionando",
+  message: "API SmartFinques funcionando",
   total: cache.length
  });
 
 });
 
-app.get("/properties",(req,res)=>{
+app.get("/properties", (req, res) => {
 
  res.json({
   total: cache.length,
@@ -369,7 +404,7 @@ app.get("/properties",(req,res)=>{
 
 });
 
-app.get("/property/:id",(req,res)=>{
+app.get("/property/:id", (req, res) => {
 
  const id = req.params.id;
 
@@ -377,28 +412,32 @@ app.get("/property/:id",(req,res)=>{
   p.id == id || p.referencia == id
  );
 
- if(!property){
+ if (!property) {
+
   return res.status(404).json({
-   error:"Propiedad no encontrada"
+   error: "Propiedad no encontrada"
   });
+
  }
 
  res.json(property);
 
 });
 
-app.get("/reload",async(req,res)=>{
+app.get("/reload", async (req, res) => {
 
  await loadXML();
  await syncBase44();
 
  res.json({
-  message:"XML recargado y sincronizado",
+  message: "XML recargado y sincronizado",
   total: cache.length
  });
 
 });
 
-app.listen(PORT,()=>{
- console.log("Servidor iniciado en puerto",PORT);
+app.listen(PORT, () => {
+
+ console.log("Servidor iniciado en puerto", PORT);
+
 });
