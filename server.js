@@ -21,7 +21,39 @@ const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
 const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
 
+/* GEO CACHE FILE */
+
+const GEO_FILE = path.join(__dirname,"geocache.js");
+
+/* CARGAR CACHE SI EXISTE */
+
 let geoCache = {};
+
+try{
+
+ geoCache = require("./geocache");
+
+ console.log("GeoCache cargado:", Object.keys(geoCache).length);
+
+}catch{
+
+ geoCache = {};
+
+}
+
+/* GUARDAR CACHE */
+
+function saveGeoCache(){
+
+ const content =
+`module.exports = ${JSON.stringify(geoCache,null,2)}
+`;
+
+ fs.writeFileSync(GEO_FILE,content);
+
+ console.log("GeoCache guardado");
+
+}
 
 /* UTILIDADES */
 
@@ -61,6 +93,8 @@ async function geocode(city, zone){
    };
 
    geoCache[key] = coords;
+
+   saveGeoCache();
 
    return coords;
 
@@ -132,6 +166,7 @@ async function loadXML(){
     }
 
     await delay(1000);
+
    }
 
    const property = {
@@ -236,7 +271,6 @@ async function syncBase44(){
     latitud: p.latitud,
     longitud: p.longitud,
 
-    /* TODAS LAS FOTOS COMO LISTA */
     fotos: p.fotos || [],
 
     caracteristicas_extra: "",
