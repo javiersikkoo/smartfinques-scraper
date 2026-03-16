@@ -23,7 +23,7 @@ const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
 
 /* GEO CACHE FILE */
 
-const GEO_FILE = path.join(__dirname,"geocache.js");
+const GEO_FILE = path.join(__dirname,"geocache.json");
 
 /* CARGAR CACHE SI EXISTE */
 
@@ -31,7 +31,10 @@ let geoCache = {};
 
 try{
 
- geoCache = require("./geocache");
+ if(fs.existsSync(GEO_FILE)){
+  const data = fs.readFileSync(GEO_FILE,"utf8");
+  geoCache = JSON.parse(data);
+ }
 
  console.log("GeoCache cargado:", Object.keys(geoCache).length);
 
@@ -45,11 +48,10 @@ try{
 
 function saveGeoCache(){
 
- const content =
-`module.exports = ${JSON.stringify(geoCache,null,2)}
-`;
-
- fs.writeFileSync(GEO_FILE,content);
+ fs.writeFileSync(
+  GEO_FILE,
+  JSON.stringify(geoCache,null,2)
+ );
 
  console.log("GeoCache guardado");
 
