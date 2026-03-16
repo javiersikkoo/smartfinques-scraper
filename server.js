@@ -1,443 +1,247 @@
-const express = require("express");
-const cors = require("cors");
-const fs = require("fs");
-const path = require("path");
-const xml2js = require("xml2js");
-const axios = require("axios");
+const express = require("express")
+const cors = require("cors")
+const xml2js = require("xml2js")
+const axios = require("axios")
+const fs = require("fs")
 
-const app = express();
-app.use(cors());
+const app = express()
+app.use(cors())
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000
 
-let cache = [];
+const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
+const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
 
-/* BASE44 */
+const API_KEY = "TU_API_KEY"
 
-const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
-const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
+const GEOCODER_KEY = "TU_GEOCODER_KEY"
 
-/* GEOCODER */
+let propiedades = []
 
-const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7";
-
-/* GEO CACHE FILE */
-
-const GEO_FILE = path.join(__dirname, "geocache.json");
-
-let geoCache = {};
-
-/* CARGAR CACHE */
-
-try {
-
- if (fs.existsSync(GEO_FILE)) {
-  geoCache = JSON.parse(fs.readFileSync(GEO_FILE, "utf8"));
- }
-
- console.log("GeoCache cargado:", Object.keys(geoCache).length);
-
-} catch (err) {
-
- console.log("Error cargando geocache:", err.message);
- geoCache = {};
-
+function delay(ms){
+ return new Promise(r=>setTimeout(r,ms))
 }
 
-/* GUARDAR CACHE */
+async function buscarZonaCache(clave){
 
-function saveGeoCache() {
+ try{
 
- try {
+  const res = await axios.get(ZONA_URL,{
+   headers:{api_key:API_KEY}
+  })
 
-  fs.writeFileSync(
-   GEO_FILE,
-   JSON.stringify(geoCache, null, 2),
-   "utf8"
-  );
+  const zonas = res.data || []
 
-  console.log("GeoCache guardado:", Object.keys(geoCache).length);
+  return zonas.find(z=>z.clave === clave)
 
- } catch (err) {
+ }catch(e){
 
-  console.log("Error guardando geocache:", err.message);
+  return null
 
  }
 
 }
 
-/* UTILIDADES */
+async function guardarZonaCache(data){
 
-function num(v) {
+ try{
 
- if (!v) return 0;
+  await axios.post(ZONA_URL,data,{
+   headers:{
+    api_key:API_KEY,
+    "Content-Type":"application/json"
+   }
+  })
 
- const n = parseFloat(v);
-
- return isNaN(n) ? 0 : n;
-
+ }catch(e){}
 }
 
-function delay(ms) {
+async function geocode(ciudad,zona){
 
- return new Promise(resolve => setTimeout(resolve, ms));
+ const clave = `${ciudad}-${zona}`
 
-}
+ const cache = await buscarZonaCache(clave)
 
-/* GEOCODER */
+ if(cache){
 
-async function geocode(city, zone) {
-
- const key = `${city}-${zone}`;
-
- if (geoCache[key]) {
-
-  return geoCache[key];
-
- }
-
- try {
-
-  console.log("Calculando zona:", key);
-
-  const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zone + " " + city + " Spain")}&key=${GEOCODER_KEY}`;
-
-  const res = await axios.get(url);
-
-  const result = res.data.results?.[0];
-
-  if (result) {
-
-   const coords = {
-    lat: result.geometry.lat,
-    lng: result.geometry.lng
-   };
-
-   geoCache[key] = coords;
-
-   saveGeoCache();
-
-   await delay(300);
-
-   return coords;
-
+  return {
+   lat:cache.latitud,
+   lng:cache.longitud
   }
 
- } catch (err) {
-
-  console.log("Error geocoder:", err.response?.data || err.message);
-
  }
 
- return null;
+ try{
 
-}
+  const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zona+" "+ciudad+" Spain")}&key=${GEOCODER_KEY}`
 
-/* CARGAR XML */
+  const res = await axios.get(url)
 
-async function loadXML() {
+  const r = res.data.results?.[0]
 
- try {
+  if(r){
 
-  const file = path.join(__dirname, "listado.xml");
-
-  if (!fs.existsSync(file)) {
-
-   console.log("XML no encontrado");
-   return;
-
-  }
-
-  const xml = fs.readFileSync(file, "utf8");
-
-  const parsed = await xml2js.parseStringPromise(xml, {
-   explicitArray: true
-  });
-
-  const propiedades = parsed?.propiedades?.propiedad || [];
-
-  const results = [];
-
-  for (const p of propiedades) {
-
-   const d = p?.datos?.[0] || {};
-
-   /* FOTOS */
-
-   const fotos = [];
-
-   if (p.fotos) {
-
-    for (const bloque of p.fotos) {
-
-     const key = Object.keys(bloque)[0];
-
-     const url = bloque[key]?.[0];
-
-     if (url) fotos.push(url);
-
-    }
-
+   const coords={
+    lat:r.geometry.lat,
+    lng:r.geometry.lng
    }
 
-   let lat = num(d.ofertas_latitud?.[0]);
-   let lng = num(d.ofertas_longitud?.[0]);
-
-   const ciudad = d.ciudad_ciudad?.[0] || "";
-   const zona = d.zonas_zona?.[0] || "";
-
-   if (lat && !lng) {
-
-    const geo = await geocode(ciudad, zona);
-
-    if (geo) {
-
-     lat = geo.lat;
-     lng = geo.lng;
-
-    }
-
-    await delay(800);
-
-   }
-
-   const property = {
-
-    id: d.id?.[0] || "",
-    referencia: d.ofertas_ref?.[0] || "",
-
-    titulo: d.ofertas_titulo1?.[0] || "",
-    descripcion: d.ofertas_descrip1?.[0] || "",
-
-    precio: num(d.ofertas_precioinmo?.[0]),
-
-    tipo: d.tipo_tipo_ofer?.[0] || "",
-    operacion: d.accionoferta_accion?.[0] || "venta",
-
+   await guardarZonaCache({
+    clave,
     ciudad,
     zona,
+    latitud:coords.lat,
+    longitud:coords.lng
+   })
 
-    habitaciones: num(d.totalhab?.[0]),
-    banos: num(d.ofertas_banyos?.[0]),
-
-    superficie: num(d.ofertas_m_cons?.[0]),
-    superficie_parcela: num(d.ofertas_m_parcela?.[0]),
-
-    latitud: lat,
-    longitud: lng,
-
-    fotos,
-
-    disponible: true
-
-   };
-
-   results.push(property);
+   return coords
 
   }
 
-  cache = results;
+ }catch(e){
 
-  console.log("Propiedades cargadas:", cache.length);
-
- } catch (e) {
-
-  console.log("Error leyendo XML:", e.message);
+  console.log("Error geocoder")
 
  }
 
+ return null
+
 }
 
-/* SINCRONIZAR BASE44 */
+async function cargarXML(){
 
-async function syncBase44() {
+ const xml = fs.readFileSync("listado.xml","utf8")
 
- try {
+ const parsed = await xml2js.parseStringPromise(xml,{explicitArray:true})
 
-  if (cache.length === 0) {
+ const props = parsed?.propiedades?.propiedad || []
 
-   console.log("No hay propiedades para sincronizar");
-   return;
+ const results=[]
 
-  }
+ for(const p of props){
 
-  console.log("Leyendo propiedades existentes en Base44...");
+  const d=p?.datos?.[0] || {}
 
-  const existing = await axios.get(BASE44_URL, {
-   headers: { api_key: API_KEY }
-  });
+  const fotos=[]
 
-  const existentes = existing.data || [];
+  if(p.fotos){
 
-  const mapa = {};
+   for(const f of p.fotos){
 
-  existentes.forEach(e => {
+    const k=Object.keys(f)[0]
 
-   if (e.referencia) {
+    const url=f[k]?.[0]
 
-    mapa[e.referencia] = e.id;
+    if(url) fotos.push(url)
 
    }
 
-  });
+  }
 
-  console.log("Propiedades existentes:", existentes.length);
+  let lat=parseFloat(d.ofertas_latitud?.[0] || 0)
+  let lng=parseFloat(d.ofertas_longitud?.[0] || 0)
 
-  for (const p of cache) {
+  const ciudad=d.ciudad_ciudad?.[0] || ""
+  const zona=d.zonas_zona?.[0] || ""
 
-   const inmueble = {
+  if(lat && !lng){
 
-    titulo: p.titulo,
-    descripcion: p.descripcion,
-    precio: p.precio,
+   const geo=await geocode(ciudad,zona)
 
-    ciudad: p.ciudad,
-    zona: p.zona,
+   if(geo){
 
-    tipo_inmueble: p.tipo,
-    sub_tipo_inmueble: "",
+    lat=geo.lat
+    lng=geo.lng
 
-    habitaciones: p.habitaciones,
-    banos: p.banos,
+   }
 
-    superficie: p.superficie,
-    superficie_parcela: p.superficie_parcela,
+  }
 
-    referencia: p.referencia,
-    operacion: p.operacion,
+  const property={
 
-    latitud: p.latitud,
-    longitud: p.longitud,
+   titulo:d.ofertas_titulo1?.[0] || "",
+   descripcion:d.ofertas_descrip1?.[0] || "",
+   precio:parseFloat(d.ofertas_precioinmo?.[0] || 0),
 
-    fotos: p.fotos,
+   ciudad,
+   zona,
 
-    caracteristicas_extra: "",
+   tipo_inmueble:d.tipo_tipo_ofer?.[0] || "",
+   operacion:d.accionoferta_accion?.[0] || "venta",
 
-    disponible: true
+   habitaciones:parseInt(d.totalhab?.[0] || 0),
+   banos:parseInt(d.ofertas_banyos?.[0] || 0),
 
-   };
+   superficie:parseFloat(d.ofertas_m_cons?.[0] || 0),
 
-   try {
+   latitud:lat,
+   longitud:lng,
 
-    if (mapa[p.referencia]) {
+   referencia:d.ofertas_ref?.[0] || "",
 
-     await axios.put(`${BASE44_URL}/${mapa[p.referencia]}`, inmueble, {
-      headers: {
-       api_key: API_KEY,
-       "Content-Type": "application/json"
-      }
-     });
+   fotos,
 
-     console.log("Actualizado:", p.referencia);
+   disponible:true
 
-    } else {
+  }
 
-     await axios.post(BASE44_URL, inmueble, {
-      headers: {
-       api_key: API_KEY,
-       "Content-Type": "application/json"
-      }
-     });
+  results.push(property)
 
-     console.log("Creado:", p.referencia);
+ }
 
+ propiedades=results
+
+ console.log("Propiedades cargadas:",propiedades.length)
+
+}
+
+async function syncBase44(){
+
+ for(const p of propiedades){
+
+  try{
+
+   await axios.post(BASE44_URL,p,{
+    headers:{
+     api_key:API_KEY,
+     "Content-Type":"application/json"
     }
+   })
 
-   } catch (err) {
+   console.log("Enviado:",p.referencia)
 
-    console.log("Error propiedad:", p.referencia);
+  }catch(e){
 
-   }
-
-   await delay(900);
+   console.log("Error:",p.referencia)
 
   }
 
-  console.log("SYNC BASE44 COMPLETADO");
-
- } catch (err) {
-
-  console.log("ERROR BASE44:", err.response?.data || err.message);
+  await delay(600)
 
  }
 
 }
 
-/* INIT */
+async function init(){
 
-async function init() {
+ await cargarXML()
 
- await loadXML();
- await syncBase44();
+ await syncBase44()
 
 }
 
-init();
+init()
 
-/* SYNC AUTOMATICO */
-
-setInterval(() => {
-
- console.log("Sync automático Base44");
-
- syncBase44();
-
-}, 1000 * 60 * 60);
-
-/* ENDPOINTS */
-
-app.get("/", (req, res) => {
+app.get("/",(req,res)=>{
 
  res.json({
-  message: "API SmartFinques funcionando",
-  total: cache.length
- });
+  total:propiedades.length
+ })
 
-});
+})
 
-app.get("/properties", (req, res) => {
+app.listen(PORT,()=>{
 
- res.json({
-  total: cache.length,
-  properties: cache
- });
+ console.log("Servidor activo")
 
-});
-
-app.get("/property/:id", (req, res) => {
-
- const id = req.params.id;
-
- const property = cache.find(p =>
-  p.id == id || p.referencia == id
- );
-
- if (!property) {
-
-  return res.status(404).json({
-   error: "Propiedad no encontrada"
-  });
-
- }
-
- res.json(property);
-
-});
-
-app.get("/reload", async (req, res) => {
-
- await loadXML();
- await syncBase44();
-
- res.json({
-  message: "XML recargado y sincronizado",
-  total: cache.length
- });
-
-});
-
-app.listen(PORT, () => {
-
- console.log("Servidor iniciado en puerto", PORT);
-
-});
+})
