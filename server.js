@@ -8,62 +8,68 @@ app.use(cors())
 
 const PORT = process.env.PORT || 3000
 
-// 🔥 TU XML AUTOMÁTICO
+// 🔥 TU XML DE INMOVILLA
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 // 🔥 BASE44
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
-const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// 🔥 GEOCODER
+const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7"
+
+let propiedades = []
 
 function delay(ms){
  return new Promise(r=>setTimeout(r,ms))
 }
 
-// ================= CACHE ZONAS =================
+// 🔍 BUSCAR ZONA CACHE
 async function buscarZonaCache(clave){
  try{
-  const res = await axios.get(ZONA_URL, { headers:{ api_key: API_KEY } })
-  const zonas = res.data || []
-  return zonas.find(z => z.clave === clave) || null
+  const res = await axios.get(ZONA_URL,{
+   headers:{ api_key:API_KEY }
+  })
+
+  return res.data.find(z=>z.clave === clave)
+
  }catch(e){
   console.log("Error leyendo cache zonas:", e.message)
   return null
  }
 }
 
+// 💾 GUARDAR ZONA
 async function guardarZonaCache(data){
  try{
-  const existente = await buscarZonaCache(data.clave)
-  if(existente) return
-
-  await axios.post(ZONA_URL, data, {
+  await axios.post(ZONA_URL,data,{
    headers:{
-    api_key: API_KEY,
+    api_key:API_KEY,
     "Content-Type":"application/json"
    }
   })
-
-  console.log("Zona guardada:", data.clave)
  }catch(e){
-  console.log("Error guardando zona:", e.message)
+  console.log("Error guardando zona cache:", e.message)
  }
 }
 
-// ================= GEOCODING =================
-async function geocode(ciudad, zona){
+// 🌍 GEOCODING
+async function geocode(ciudad,zona){
+
  const clave = `${ciudad}-${zona}`
+
  const cache = await buscarZonaCache(clave)
 
  if(cache){
-  return { lat: cache.latitud, lng: cache.longitud }
+  return {
+   lat:cache.latitud,
+   lng:cache.longitud
+  }
  }
 
  try{
-  console.log("Geocoding:", clave)
+
+  console.log("Geocoding:",clave)
 
   const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zona+" "+ciudad+" Spain")}&key=${GEOCODER_KEY}`
 
@@ -71,17 +77,22 @@ async function geocode(ciudad, zona){
   const r = res.data.results?.[0]
 
   if(r){
-   const coords = { lat: r.geometry.lat, lng: r.geometry.lng }
+
+   const coords={
+    lat:r.geometry.lat,
+    lng:r.geometry.lng
+   }
 
    await guardarZonaCache({
     clave,
     ciudad,
     zona,
-    latitud: coords.lat,
-    longitud: coords.lng
+    latitud:coords.lat,
+    longitud:coords.lng
    })
 
    await delay(500)
+
    return coords
   }
 
@@ -92,13 +103,13 @@ async function geocode(ciudad, zona){
  return null
 }
 
-// ================= PARSE XML =================
+// 📦 CARGAR XML (NUEVO FORMATO INMOVILLA)
 async function cargarXML(){
 
  const res = await axios.get(XML_URL)
  const xml = res.data
 
- const parsed = await xml2js.parseStringPromise(xml,{explicitArray:true})
+ const parsed = await xml2js.parseStringPromise(xml,{explicitArray:false})
 
  const props = parsed?.propiedades?.propiedad || []
 
@@ -106,96 +117,95 @@ async function cargarXML(){
 
  for(const p of props){
 
-  const d=p?.datos?.[0] || {}
+  let lat = parseFloat(p.latitud || 0)
+  let lng = parseFloat(p.altitud || 0) // ⚠️ altitud = longitud
 
-  let lat=parseFloat(d.ofertas_latitud?.[0] || 0)
-  let lng=parseFloat(d.ofertas_longitud?.[0] || 0)
-
-  const ciudad=d.ciudad_ciudad?.[0] || ""
-  const zona=d.zonas_zona?.[0] || ""
+  const ciudad = p.ciudad || ""
+  const zona = p.zona || ""
 
   if(!lat || !lng){
-   const geo=await geocode(ciudad,zona)
+   const geo = await geocode(ciudad,zona)
    if(geo){
-    lat=geo.lat
-    lng=geo.lng
+    lat = geo.lat
+    lng = geo.lng
+   }
+  }
+
+  // 📸 FOTOS
+  const fotos=[]
+  for(let i=1;i<=20;i++){
+   if(p[`foto${i}`]){
+    fotos.push(p[`foto${i}`])
    }
   }
 
   const property={
-   referencia:d.ofertas_ref?.[0] || "",
-   titulo:d.ofertas_titulo1?.[0] || "",
-   descripcion:d.ofertas_descrip1?.[0] || "",
-   precio:parseFloat(d.ofertas_precioinmo?.[0] || 0),
+
+   referencia: p.ref || "",
+   titulo: p.titulo1 || "",
+   descripcion: p.descrip1 || "",
+   precio: parseFloat(p.precioinmo || 0),
 
    ciudad,
    zona,
 
-   tipo_inmueble:d.tipo_tipo_ofer?.[0] || "",
-   operacion:d.accionoferta_accion?.[0] || "venta",
+   tipo_inmueble: p.tipo_ofer || "",
+   operacion: p.accion || "venta",
 
-   habitaciones:parseInt(d.totalhab?.[0] || 0),
-   banos:parseInt(d.ofertas_banyos?.[0] || 0),
+   habitaciones: parseInt(p.habitaciones || 0),
+   banos: parseInt(p.banyos || 0),
 
-   superficie:parseFloat(d.ofertas_m_cons?.[0] || 0),
+   superficie: parseFloat(p.m_cons || 0),
 
-   latitud:lat || null,
-   longitud:lng || null,
+   latitud: lat || null,
+   longitud: lng || null,
 
-   disponible:true
+   fotos,
+
+   disponible: true
   }
 
   results.push(property)
  }
 
- return results
+ propiedades = results
+
+ console.log("Propiedades cargadas:", propiedades.length)
 }
 
-// ================= SYNC BASE44 =================
+// 🔥 SYNC SIN DUPLICADOS
 async function syncBase44(){
 
- const propiedades = await cargarXML()
+ // 1. Obtener existentes
+ let existentes=[]
+ try{
+  const res = await axios.get(BASE44_URL,{
+   headers:{ api_key:API_KEY }
+  })
+  existentes = res.data || []
+ }catch(e){
+  console.log("Error obteniendo existentes")
+ }
 
- console.log("Propiedades XML:", propiedades.length)
-
- const res = await axios.get(BASE44_URL, {
-  headers:{ api_key: API_KEY }
- })
-
- const existentes = res.data || []
-
- const mapExistentes = new Map()
- existentes.forEach(p => mapExistentes.set(p.referencia, p))
-
- const refsActuales = new Set()
-
- // CREATE / UPDATE
  for(const p of propiedades){
-
-  refsActuales.add(p.referencia)
-
-  const existe = mapExistentes.get(p.referencia)
 
   try{
 
-   if(existe){
-    await axios.put(`${BASE44_URL}/${existe.id}`, p, {
-     headers:{
-      api_key: API_KEY,
-      "Content-Type":"application/json"
-     }
-    })
-    console.log("Actualizado:", p.referencia)
+   const existe = existentes.find(e=>e.referencia === p.referencia)
 
-   }else{
-    await axios.post(BASE44_URL, p, {
-     headers:{
-      api_key: API_KEY,
-      "Content-Type":"application/json"
-     }
-    })
-    console.log("Creado:", p.referencia)
+   if(existe){
+    console.log("Ya existe:", p.referencia)
+    continue
    }
+
+   await axios.post(BASE44_URL,p,{
+    headers:{
+     api_key:API_KEY,
+     "Content-Type":"application/json"
+    }
+   })
+
+   console.log("Subido:", p.referencia)
 
   }catch(e){
    console.log("Error propiedad:", p.referencia)
@@ -204,47 +214,25 @@ async function syncBase44(){
   await delay(500)
  }
 
- // DESACTIVAR ELIMINADOS
- for(const e of existentes){
-
-  if(!refsActuales.has(e.referencia)){
-
-   try{
-    await axios.put(`${BASE44_URL}/${e.id}`, {
-     disponible:false
-    },{
-     headers:{
-      api_key: API_KEY,
-      "Content-Type":"application/json"
-     }
-    })
-
-    console.log("Desactivado:", e.referencia)
-
-   }catch(err){
-    console.log("Error desactivando:", e.referencia)
-   }
-
-  }
- }
-
- console.log("SYNC COMPLETO")
 }
 
-// ================= INIT =================
+// 🚀 INIT
 async function init(){
+ await cargarXML()
  await syncBase44()
 }
 
-init()
-
-app.get("/",(req,res)=>{
- res.send("Servidor funcionando")
+// 🔁 ENDPOINT MANUAL
+app.get("/sync", async(req,res)=>{
+ await init()
+ res.json({ok:true})
 })
 
-app.get("/sync", async(req,res)=>{
- await syncBase44()
- res.send("Sync ejecutado")
+// 📊 TEST
+app.get("/",(req,res)=>{
+ res.json({
+  total:propiedades.length
+ })
 })
 
 app.listen(PORT,()=>{
