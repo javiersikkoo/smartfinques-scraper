@@ -5,7 +5,7 @@ const axios = require("axios")
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({limit:"10mb"}))
 
 const PORT = process.env.PORT || 3000
 
@@ -58,8 +58,6 @@ async function cargarXML(){
 
    fotos,
    disponible:true,
-
-   fechaact:p.fechaact || "",
    contactos:0
   })
  }
@@ -87,40 +85,27 @@ async function syncBase44(){
   try{
 
    if(existe){
-
-    if(existe.fechaact !== p.fechaact){
-
-     await axios.put(`${BASE44_URL}/${existe.id}`,p,{
-      headers:{api_key:API_KEY}
-     })
-
-     console.log("Actualizado:",p.referencia)
-    }
-
+    await axios.put(`${BASE44_URL}/${existe.id}`,p,{
+     headers:{api_key:API_KEY}
+    })
    }else{
-
     await axios.post(BASE44_URL,p,{
      headers:{api_key:API_KEY}
     })
-
-    console.log("Creado:",p.referencia)
    }
 
-  }catch(e){
-   console.log("Error:",p.referencia)
-  }
+  }catch{}
 
-  await delay(200)
+  await delay(150)
  }
 
- // DELETE
+ // eliminar los que ya no existen
  for(const e of existentes){
   if(!refsXML.includes(e.referencia)){
    try{
     await axios.delete(`${BASE44_URL}/${e.id}`,{
      headers:{api_key:API_KEY}
     })
-    console.log("Eliminado:",e.referencia)
    }catch{}
   }
  }
@@ -136,30 +121,36 @@ async function init(){
 // ================= LOGIN =================
 
 app.get("/admin",(req,res)=>{
-
  res.send(`
- <h2>Login Admin</h2>
- <input id="user" placeholder="user"/>
- <input id="pass" type="password" placeholder="pass"/>
- <button onclick="login()">Entrar</button>
+ <!DOCTYPE html>
+ <html>
+ <body style="background:#0f172a;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;">
+  <div>
+   <h2>Login</h2>
+   <input id="u" placeholder="user"/><br/><br/>
+   <input id="p" type="password" placeholder="pass"/><br/><br/>
+   <button onclick="login()">Entrar</button>
+  </div>
 
- <script>
- function login(){
-  const u = document.getElementById('user').value
-  const p = document.getElementById('pass').value
+  <script>
+   function login(){
+    const u=document.getElementById("u").value
+    const p=document.getElementById("p").value
 
-  if(u==="admin" && p==="admin"){
-   window.location.href="/panel"
-  }else{
-   alert("Incorrecto")
-  }
- }
- </script>
+    if(u==="admin" && p==="admin"){
+     localStorage.setItem("role","admin")
+     window.location="/panel"
+    }else{
+     alert("incorrecto")
+    }
+   }
+  </script>
+ </body>
+ </html>
  `)
-
 })
 
-// ================= PANEL =================
+// ================= PANEL PRO =================
 
 app.get("/panel", async (req,res)=>{
 
@@ -170,100 +161,188 @@ app.get("/panel", async (req,res)=>{
   data = r.data
  }catch{}
 
- const total = data.length
- const totalLeads = data.reduce((acc,i)=>acc+(i.contactos||0),0)
-
  res.send(`
- <h1>DASHBOARD</h1>
+ <!DOCTYPE html>
+ <html>
+ <head>
+ <title>Dashboard</title>
 
- <p>Total inmuebles: ${total}</p>
- <p>Total leads: ${totalLeads}</p>
+ <style>
+ body{
+  margin:0;
+  font-family:sans-serif;
+  background:#0f172a;
+  color:white;
+ }
 
- <button onclick="sync()">SYNC</button>
+ header{
+  padding:15px;
+  background:#020617;
+  display:flex;
+  justify-content:space-between;
+ }
 
- <h2>Inmuebles</h2>
+ .grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
+  gap:20px;
+  padding:20px;
+ }
+
+ .card{
+  background:#1e293b;
+  padding:15px;
+  border-radius:10px;
+ }
+
+ img{
+  width:100%;
+  border-radius:8px;
+ }
+
+ input,textarea{
+  width:100%;
+  margin-top:5px;
+  padding:6px;
+  border:none;
+  border-radius:5px;
+ }
+
+ button{
+  margin-top:5px;
+  padding:6px;
+  border:none;
+  border-radius:5px;
+  cursor:pointer;
+ }
+
+ .save{background:#3b82f6;color:white;}
+ .delete{background:#ef4444;color:white;}
+ </style>
+
+ </head>
+
+ <body>
+
+ <header>
+  <div>🏠 Dashboard</div>
+  <button onclick="sync()">Sync</button>
+ </header>
+
+ <div class="grid">
 
  ${data.map(i=>`
-  <div style="border:1px solid #ccc; padding:10px; margin:10px;">
-   <b>${i.titulo}</b><br/>
-   ${i.precio}€ - ${i.ciudad}<br/>
-   Ref: ${i.referencia}<br/>
-   Leads: ${i.contactos || 0}<br/>
+  <div class="card">
+   <img src="${i.fotos?.[0] || ''}"/>
 
-   <input id="p${i.id}" placeholder="nuevo precio"/>
-   <button onclick="update('${i.id}')">Actualizar precio</button>
+   <b>${i.titulo}</b>
+   <p>${i.precio}€</p>
+
+   <input id="precio${i.id}" value="${i.precio}">
+   <textarea id="desc${i.id}">${i.descripcion}</textarea>
+
+   <input type="file" onchange="upload(event,'${i.id}')"/>
+
+   <button class="save" onclick="save('${i.id}')">Guardar</button>
+   <button class="delete" onclick="del('${i.id}')">Eliminar</button>
   </div>
  `).join("")}
 
+ </div>
+
  <script>
+
  async function sync(){
   await fetch('/sync?user=admin&pass=admin')
-  alert("Sync hecho")
   location.reload()
  }
 
- async function update(id){
-  const val = document.getElementById('p'+id).value
+ async function save(id){
+  const precio=document.getElementById("precio"+id).value
+  const descripcion=document.getElementById("desc"+id).value
 
   await fetch('/update',{
    method:"POST",
    headers:{'Content-Type':'application/json'},
-   body:JSON.stringify({id,precio:val})
+   body:JSON.stringify({id,precio,descripcion})
   })
+ }
 
-  alert("Actualizado")
+ async function del(id){
+  await fetch('/delete',{
+   method:"POST",
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({id})
+  })
   location.reload()
  }
+
+ function upload(e,id){
+  const file=e.target.files[0]
+  const reader=new FileReader()
+
+  reader.onload=async function(){
+   await fetch('/upload',{
+    method:"POST",
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id,image:reader.result})
+   })
+   alert("imagen subida")
+  }
+
+  reader.readAsDataURL(file)
+ }
+
  </script>
+
+ </body>
+ </html>
  `)
 })
 
 // ================= API =================
 
+app.post("/update", async (req,res)=>{
+ const {id,precio,descripcion} = req.body
+
+ await axios.put(`${BASE44_URL}/${id}`,{
+  precio:parseFloat(precio),
+  descripcion
+ },{
+  headers:{api_key:API_KEY}
+ })
+
+ res.json({ok:true})
+})
+
+app.post("/delete", async (req,res)=>{
+ const {id} = req.body
+
+ await axios.delete(`${BASE44_URL}/${id}`,{
+  headers:{api_key:API_KEY}
+ })
+
+ res.json({ok:true})
+})
+
+app.post("/upload", async (req,res)=>{
+ const {id,image} = req.body
+
+ await axios.put(`${BASE44_URL}/${id}`,{
+  fotos:[image]
+ },{
+  headers:{api_key:API_KEY}
+ })
+
+ res.json({ok:true})
+})
+
 // sync protegido
 app.get("/sync", async (req,res)=>{
  if(req.query.user!=="admin" || req.query.pass!=="admin"){
-  return res.send("No autorizado")
+  return res.send("no autorizado")
  }
  await init()
- res.json({ok:true})
-})
-
-// actualizar precio
-app.post("/update", async (req,res)=>{
-
- const {id,precio} = req.body
-
- try{
-  await axios.put(`${BASE44_URL}/${id}`,{
-   precio:parseFloat(precio)
-  },{
-   headers:{api_key:API_KEY}
-  })
- }catch{}
-
- res.json({ok:true})
-})
-
-// contacto (lead)
-app.post("/contactar", async (req,res)=>{
-
- const {referencia} = req.body
-
- try{
-  const r = await axios.get(BASE44_URL,{headers:{api_key:API_KEY}})
-  const inmueble = r.data.find(i=>i.referencia === referencia)
-
-  if(inmueble){
-   await axios.put(`${BASE44_URL}/${inmueble.id}`,{
-    contactos:(inmueble.contactos || 0)+1
-   },{
-    headers:{api_key:API_KEY}
-   })
-  }
-
- }catch{}
-
  res.json({ok:true})
 })
 
