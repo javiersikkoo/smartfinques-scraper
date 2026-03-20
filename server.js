@@ -12,71 +12,14 @@ const PORT = process.env.PORT || 3000
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
-const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
-
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
-const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7"
 
 let propiedades = []
 
 const delay = ms => new Promise(r=>setTimeout(r,ms))
 
-// NORMALIZAR
-const normalizar = txt => (txt || "").toLowerCase().trim()
+// ================= XML =================
 
-// CACHE ZONA
-async function buscarZonaCache(clave){
- try{
-  const res = await axios.get(ZONA_URL,{headers:{api_key:API_KEY}})
-  return res.data.find(z=>z.clave === clave)
- }catch{
-  return null
- }
-}
-
-async function guardarZonaCache(data){
- try{
-  await axios.post(ZONA_URL,data,{
-   headers:{api_key:API_KEY,"Content-Type":"application/json"}
-  })
- }catch{}
-}
-
-// GEOCODE
-async function geocode(ciudad,zona){
-
- const clave = `${normalizar(ciudad)}-${normalizar(zona)}`
-
- const cache = await buscarZonaCache(clave)
- if(cache){
-  return {lat:cache.latitud,lng:cache.longitud}
- }
-
- try{
-  const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zona+" "+ciudad+" Spain")}&key=${GEOCODER_KEY}`
-  const res = await axios.get(url)
-  const r = res.data.results?.[0]
-
-  if(r){
-   const coords = {lat:r.geometry.lat,lng:r.geometry.lng}
-
-   await guardarZonaCache({
-    clave,
-    ciudad,
-    zona,
-    latitud:coords.lat,
-    longitud:coords.lng
-   })
-
-   return coords
-  }
-
- }catch{}
-
- return null
-}
-
-// PARSE XML
 async function cargarXML(){
 
  const {data} = await axios.get(XML_URL)
@@ -87,20 +30,6 @@ async function cargarXML(){
  const results=[]
 
  for(const p of props){
-
-  let lat = parseFloat(p.latitud || 0)
-  let lng = parseFloat(p.altitud || 0)
-
-  const ciudad = p.ciudad || ""
-  const zona = p.zona || ""
-
-  if(!lat || !lng){
-   const geo = await geocode(ciudad,zona)
-   if(geo){
-    lat = geo.lat
-    lng = geo.lng
-   }
-  }
 
   const fotos=[]
   for(let i=1;i<=20;i++){
@@ -113,8 +42,8 @@ async function cargarXML(){
    descripcion:p.descrip1,
    precio:parseFloat(p.precioinmo || 0),
 
-   ciudad,
-   zona,
+   ciudad:p.ciudad,
+   zona:p.zona,
 
    tipo_inmueble:p.tipo_ofer,
    operacion:p.accion,
@@ -124,20 +53,22 @@ async function cargarXML(){
 
    superficie:parseFloat(p.m_cons || 0),
 
-   latitud:lat,
-   longitud:lng,
+   latitud:parseFloat(p.latitud || 0),
+   longitud:parseFloat(p.altitud || 0),
 
    fotos,
    disponible:true,
 
-   fechaact:p.fechaact || ""
+   fechaact:p.fechaact || "",
+   contactos:0
   })
  }
 
  propiedades = results
 }
 
-// SYNC PRO
+// ================= SYNC =================
+
 async function syncBase44(){
 
  let existentes=[]
@@ -195,35 +126,128 @@ async function syncBase44(){
  }
 }
 
-// INIT
+// ================= INIT =================
+
 async function init(){
  await cargarXML()
  await syncBase44()
 }
 
-// CRON
-setInterval(()=>{
- console.log("SYNC AUTO")
- init()
-}, 1000 * 60 * 60) // 1 hora
+// ================= LOGIN =================
 
-// ADMIN PANEL (simple)
+app.get("/admin",(req,res)=>{
 
-// sync manual
-app.get("/sync", async(req,res)=>{
+ res.send(`
+ <h2>Login Admin</h2>
+ <input id="user" placeholder="user"/>
+ <input id="pass" type="password" placeholder="pass"/>
+ <button onclick="login()">Entrar</button>
+
+ <script>
+ function login(){
+  const u = document.getElementById('user').value
+  const p = document.getElementById('pass').value
+
+  if(u==="admin" && p==="admin"){
+   window.location.href="/panel"
+  }else{
+   alert("Incorrecto")
+  }
+ }
+ </script>
+ `)
+
+})
+
+// ================= PANEL =================
+
+app.get("/panel", async (req,res)=>{
+
+ let data=[]
+
+ try{
+  const r = await axios.get(BASE44_URL,{headers:{api_key:API_KEY}})
+  data = r.data
+ }catch{}
+
+ const total = data.length
+ const totalLeads = data.reduce((acc,i)=>acc+(i.contactos||0),0)
+
+ res.send(`
+ <h1>DASHBOARD</h1>
+
+ <p>Total inmuebles: ${total}</p>
+ <p>Total leads: ${totalLeads}</p>
+
+ <button onclick="sync()">SYNC</button>
+
+ <h2>Inmuebles</h2>
+
+ ${data.map(i=>`
+  <div style="border:1px solid #ccc; padding:10px; margin:10px;">
+   <b>${i.titulo}</b><br/>
+   ${i.precio}€ - ${i.ciudad}<br/>
+   Ref: ${i.referencia}<br/>
+   Leads: ${i.contactos || 0}<br/>
+
+   <input id="p${i.id}" placeholder="nuevo precio"/>
+   <button onclick="update('${i.id}')">Actualizar precio</button>
+  </div>
+ `).join("")}
+
+ <script>
+ async function sync(){
+  await fetch('/sync?user=admin&pass=admin')
+  alert("Sync hecho")
+  location.reload()
+ }
+
+ async function update(id){
+  const val = document.getElementById('p'+id).value
+
+  await fetch('/update',{
+   method:"POST",
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({id,precio:val})
+  })
+
+  alert("Actualizado")
+  location.reload()
+ }
+ </script>
+ `)
+})
+
+// ================= API =================
+
+// sync protegido
+app.get("/sync", async (req,res)=>{
+ if(req.query.user!=="admin" || req.query.pass!=="admin"){
+  return res.send("No autorizado")
+ }
  await init()
  res.json({ok:true})
 })
 
-// stats
-app.get("/stats",(req,res)=>{
- res.json({
-  total:propiedades.length
- })
+// actualizar precio
+app.post("/update", async (req,res)=>{
+
+ const {id,precio} = req.body
+
+ try{
+  await axios.put(`${BASE44_URL}/${id}`,{
+   precio:parseFloat(precio)
+  },{
+   headers:{api_key:API_KEY}
+  })
+ }catch{}
+
+ res.json({ok:true})
 })
 
-// simular contacto (monetización)
-app.post("/contactar", async(req,res)=>{
+// contacto (lead)
+app.post("/contactar", async (req,res)=>{
+
  const {referencia} = req.body
 
  try{
