@@ -12,109 +12,42 @@ const PORT = process.env.PORT || 3000
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
-const ZONA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/ZonaCache"
-const LEAD_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Lead"
-const CHAT_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Chat"
+const LEADS_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Leads"
 
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
-const GEOCODER_KEY = "b0b35deecc094cfea0e46fe6b8cbf7d7"
 
-function delay(ms){
- return new Promise(r=>setTimeout(r,ms))
-}
-
-function limpiarTexto(texto){
- return (texto || "").trim().toLowerCase()
-}
-
-// ---------------- CACHE ZONAS ----------------
-
-async function buscarZonaCache(clave){
+// 🔹 IA (usa OpenAI si quieres luego meter key)
+async function generarRespuestaIA(mensaje){
  try{
-  const res = await axios.get(ZONA_URL,{ headers:{api_key:API_KEY}})
-  return res.data.find(z=>z.clave === clave)
- }catch{
-  return null
+  return `Gracias por tu interés. Hemos recibido tu mensaje: "${mensaje}". Un agente te contactará pronto.`
+ }catch(e){
+  return "Gracias por contactar, te responderemos pronto."
  }
 }
 
-async function guardarZonaCache(data){
- try{
-  await axios.post(ZONA_URL,data,{
-   headers:{api_key:API_KEY,"Content-Type":"application/json"}
-  })
- }catch{}
+// 🔹 SCORING LEADS
+function calcularScore(mensaje){
+ let score = 0
+
+ if(mensaje.includes("visitar")) score += 5
+ if(mensaje.includes("precio")) score += 2
+ if(mensaje.length > 50) score += 2
+
+ return Math.min(score,10)
 }
 
-// ---------------- GEO ----------------
-
-async function geocode(ciudad,zona){
-
- const clave = limpiarTexto(`${ciudad}-${zona}`)
- const cache = await buscarZonaCache(clave)
-
- if(cache){
-  return { lat:cache.latitud, lng:cache.longitud }
- }
-
- try{
-  const url = `https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(zona+" "+ciudad+" Spain")}&key=${GEOCODER_KEY}`
-
-  const res = await axios.get(url)
-  const r = res.data.results?.[0]
-
-  if(r){
-
-   const coords = {
-    lat:r.geometry.lat,
-    lng:r.geometry.lng
-   }
-
-   await guardarZonaCache({
-    clave,
-    ciudad,
-    zona,
-    latitud:coords.lat,
-    longitud:coords.lng
-   })
-
-   await delay(500)
-   return coords
-  }
-
- }catch{}
-
- return null
-}
-
-// ---------------- XML ----------------
-
+// 🔹 CARGAR XML
 async function cargarXML(){
 
  const response = await axios.get(XML_URL)
  const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
 
  const props = parsed?.propiedades?.propiedad || []
-
  const results=[]
 
  for(const p of props){
 
-  let lat = parseFloat(p.latitud || 0)
-  let lng = parseFloat(p.altitud || 0)
-
-  const ciudad = p.ciudad || ""
-  const zona = p.zona || ""
-
-  if(!lat || !lng){
-   const geo = await geocode(ciudad,zona)
-   if(geo){
-    lat = geo.lat
-    lng = geo.lng
-   }
-  }
-
-  const fotos=[]
+  const fotos = []
   for(let i=1;i<=20;i++){
    if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
   }
@@ -124,15 +57,15 @@ async function cargarXML(){
    titulo: p.titulo1 || "",
    descripcion: p.descrip1 || "",
    precio: parseFloat(p.precioinmo || 0),
-   ciudad,
-   zona,
+   ciudad: p.ciudad,
+   zona: p.zona,
    tipo_inmueble: p.tipo_ofer,
    operacion: p.accion?.toLowerCase() || "venta",
    habitaciones: parseInt(p.habitaciones || 0),
    banos: parseInt(p.banyos || 0),
    superficie: parseFloat(p.m_cons || 0),
-   latitud: lat || null,
-   longitud: lng || null,
+   latitud: parseFloat(p.latitud || 0),
+   longitud: parseFloat(p.altitud || 0),
    fotos,
    disponible: true
   })
@@ -141,8 +74,7 @@ async function cargarXML(){
  return results
 }
 
-// ---------------- SYNC ----------------
-
+// 🔹 SYNC
 async function syncBase44(propiedades){
 
  const existing = await axios.get(BASE44_URL,{
@@ -153,32 +85,24 @@ async function syncBase44(propiedades){
 
   const yaExiste = existing.data.find(x=>x.referencia === p.referencia)
 
-  try{
-
-   if(yaExiste){
-
-    await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
-     headers:{api_key:API_KEY,"Content-Type":"application/json"}
-    })
-
-   }else{
-
-    await axios.post(BASE44_URL,p,{
-     headers:{api_key:API_KEY,"Content-Type":"application/json"}
-    })
-   }
-
-  }catch{}
-
-  await delay(400)
+  if(yaExiste){
+   await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
+    headers:{api_key:API_KEY}
+   })
+   console.log("Actualizado:",p.referencia)
+  }else{
+   await axios.post(BASE44_URL,p,{
+    headers:{api_key:API_KEY}
+   })
+   console.log("Creado:",p.referencia)
+  }
  }
 }
 
-// ---------------- API ----------------
-
+// 🔥 API
 app.post("/api", async (req,res)=>{
 
- const {action} = req.body
+ const {action,data} = req.body
 
  try{
 
@@ -189,51 +113,64 @@ app.post("/api", async (req,res)=>{
    return res.json({ok:true})
   }
 
-  // 📩 LEAD
+  // 💬 NUEVO LEAD
   if(action === "lead"){
 
-   const {nombre, telefono, email, mensaje, inmueble} = req.body
+   const score = calcularScore(data.mensaje)
 
-   await axios.post(LEAD_URL,{
-    nombre,
-    telefono,
-    email,
-    mensaje,
-    inmueble,
-    fecha:new Date(),
-    estado:"nuevo"
-   },{
-    headers:{api_key:API_KEY,"Content-Type":"application/json"}
+   const lead = {
+    nombre: data.nombre,
+    mensaje: data.mensaje,
+    inmueble_ref: data.ref,
+    fecha: new Date(),
+    score,
+    respondido:false
+   }
+
+   await axios.post(LEADS_URL,lead,{
+    headers:{api_key:API_KEY}
    })
 
    return res.json({ok:true})
   }
 
-  // 💬 CHAT
-  if(action === "chat"){
+  // 🤖 IA RESPUESTA
+  if(action === "aiReply"){
 
-   const {mensaje, inmueble, usuario} = req.body
+   const respuesta = await generarRespuestaIA(data.mensaje)
 
-   await axios.post(CHAT_URL,{
-    mensaje,
-    inmueble,
-    usuario,
-    fecha:new Date(),
-    leido:false
-   },{
-    headers:{api_key:API_KEY,"Content-Type":"application/json"}
+   return res.json({respuesta})
+  }
+
+  // 📊 MÉTRICAS
+  if(action === "metrics"){
+
+   const inmuebles = await axios.get(BASE44_URL,{
+    headers:{api_key:API_KEY}
    })
 
-   return res.json({ok:true})
+   const leads = await axios.get(LEADS_URL,{
+    headers:{api_key:API_KEY}
+   })
+
+   const totalLeads = leads.data.length
+   const calientes = leads.data.filter(l=>l.score > 7).length
+   const nuevos = leads.data.filter(l=>!l.respondido).length
+
+   return res.json({
+    inmuebles: inmuebles.data.length,
+    leads: totalLeads,
+    calientes,
+    nuevos
+   })
   }
 
   res.json({error:"acción no válida"})
 
  }catch(e){
-  console.log(e.response?.data || e.message)
+  console.log(e.message)
   res.json({error:true})
  }
-
 })
 
 app.get("/",(req,res)=>{
@@ -241,5 +178,5 @@ app.get("/",(req,res)=>{
 })
 
 app.listen(PORT,()=>{
- console.log("Servidor activo")
+ console.log("Servidor PRO activo")
 })
