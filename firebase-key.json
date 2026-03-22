@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "smartfinques-app-7f09c",
+  "private_key_id": "676132a52ca77471a15638a0a65f0c698f93376a",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCrzisXSb/OVsCo\nirLwl0zjSskJeVvuP6Okj/jVhSUoO2dVkcTsw80xgJTwzubjfdX77fHKGYzzJbXR\nic1FxHv5JMUvMFVf76r3PE2RYSS+uwGM87qcxazly+2WoylDquwR6NZpDleKgeV5\nQB/i6ItrTW0Ov9jbpokrYrakj4R9NElydVSI/2874mKt9vlZmYc53GTeA3ExZC/V\nd1AQuqQYWT0QBgGum8jRbQpQPYxbkgK65teXrb8IorBfSC6ntfsHqb27UxhzvkyG\nj/1Ydl26e0fdi0wUS1fbiBkfeae4o3i65kkMgsY5yEBYihISDEiOM9t/7j51v7K2\nw/pd7ypjAgMBAAECggEAUXzxwlN4Ftnd+nMC6YuR6/LCROybdncX2otxFnFXDOyU\nGCmSMkyyrCqVOlygdcFvN9WFy/pveLpnsTG/u7o0pRjUMAwoSl8mg6rGDdD6OT8A\nvsaxuf8mgT5G/B56iX5uBxadb+neCrOO0IJiPWFYE3Z/ZjIHnTMxt3LUN1xdFnbp\nzI2WK+f3Lqt+oucwwrIovtDmi0r5RQUZn8lFF73PkV5cMXIpduS3fqnDyZbqKzQ+\nMiWgC+Wn3MECXaKTuMmS+oTL6N0pwF1q7QnUPLE519mR6/1aXlEaw3THHsbJK4Gk\n0rHo1jF7fYSgNbg/WKLDahnTaAhYqODEc/4cfVBsJQKBgQDagkP07/+TUXWb7226\nB086xUBkuvlel2avq7ZRJDWI8a8zF9t0YVZFXbcuDFP7i5qCl5Ro9Me1wW47kySE\n+GmvwSPm0NRyCHkebjFMDGTowAUF0Jl/oy8iJdHyCZN46hM325/WirLoWeg57Qnc\nhuzsSDQJddWGqcvUITUEsS2cXwKBgQDJSIIoqok7hZlTCv87yg+7Rzz4jezV8TCk\ngw21Gpc9A7AqbXR2lmonl8naT358+dVRxsek3APY11M7U/6XZQKlFYfulGhAmyJd\nn5BMKu/F4monTg6h9gy69RvlFKw92df8rbDUojM1Ea/wht0vQasLV9kXqQ7utb3j\n+Od1sagwfQKBgQCKsXBtAgDZAzWBWsHs+ELD7Pvoc/1gmvzkuDsq2a7ZU35/Eb+L\n6VSXBtsEcXLFEWFrTsc2r1gr97D+Q3FErWB33EHredW+473tIMhNmvhZ+7e0bylf\nKLb8F8Fgvc9LSlgUdmTICpVwgdCzI8/EmCe9+j59WrvDk/b6mHFMnyFyRQKBgHH4\n+aJ3Ne+bLX9FKdK8Dn5XzyFak7FsucNdZcSXgu2MihLsGVcQwpkarLRN8OxpNq3w\nZZlm71K4Uiu02uL00jOR5n9kT0fNz/69XCKU6WHeW4dX/pcc0IaIRbxIIWOAV3l/\nDDLKiT5SfpIue03H3Ec2/fkUxBzMkfJlPQJ6jyatAoGAYQuMneZieMtxeyDMg1CT\nrlo3cm1Ke5SoxxIiyq1ge+DcAGkbFYRArFK6BAUjgQSQRpv0yrLxpqk191QmzUDZ\nD2EL/Z4vJvgbeavuki4SiHjqgBARFulufUK55TDR7E10Jfy/yQSl1eaerJBhV3xC\njA19MQbaXsPNEfalZDcdQPQ=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@smartfinques-app-7f09c.iam.gserviceaccount.com",
+  "client_id": "101022956444996222494",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40smartfinques-app-7f09c.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
