@@ -203,3 +203,50 @@ app.post("/lead/create", async (req,res)=>{
   res.json({error:true})
  }
 })
+// 🔥 CAMBIAR ESTADO LEAD
+app.post("/lead/estado", async (req,res)=>{
+
+ const {leadId, estado} = req.body
+
+ try{
+
+  await db.collection("leads").doc(leadId).update({
+   estado
+  })
+
+  res.json({ok:true})
+
+ }catch(e){
+  res.json({error:true})
+ }
+})
+// 🔥 OBTENER LEADS (SEGÚN ROL)
+app.post("/leads/get", async (req,res)=>{
+
+ const {userId, rol} = req.body
+
+ try{
+
+  let query
+
+  if(rol === "admin"){
+   query = await db.collection("leads").get()
+  }
+
+  if(rol === "comercial"){
+   query = await db.collection("leads")
+    .where("asignadoA","==",userId)
+    .get()
+  }
+
+  const leads = query.docs.map(doc=>({
+   id:doc.id,
+   ...doc.data()
+  }))
+
+  res.json(leads)
+
+ }catch(e){
+  res.json({error:true})
+ }
+})
