@@ -178,3 +178,28 @@ app.post("/sync", async (req,res)=>{
 app.get("/",(req,res)=>res.json({status:"ok"}))
 
 app.listen(PORT,()=>console.log("Servidor activo"))
+
+// 🔥 CREAR LEAD AL CONTACTAR
+app.post("/lead/create", async (req,res)=>{
+
+ const {nombre, email, telefono, inmuebleRef, userId} = req.body
+
+ try{
+
+  const leadRef = await db.collection("leads").add({
+   nombre,
+   email,
+   telefono,
+   inmuebleRef,
+   userId,
+   estado:"nuevo",
+   asignadoA:null,
+   createdAt:new Date()
+  })
+
+  res.json({ok:true, leadId:leadRef.id})
+
+ }catch(e){
+  res.json({error:true})
+ }
+})
