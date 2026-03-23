@@ -10,7 +10,7 @@ app.use(express.json())
 
 const PORT = process.env.PORT || 3000
 
-// 🔥 FIREBASE ADMIN SDK
+// 🔥 FIREBASE
 const serviceAccount = require("./firebaseKey.json")
 
 admin.initializeApp({
@@ -19,7 +19,7 @@ admin.initializeApp({
 
 const db = admin.firestore()
 
-// 🔗 XML INMOVILLA
+// 🔗 XML
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 // 🔗 BASE44
@@ -31,23 +31,20 @@ function delay(ms){
  return new Promise(r=>setTimeout(r,ms))
 }
 
-// 🔹 cargar XML
+// 🔹 CARGAR XML
 async function cargarXML(){
  const response = await axios.get(XML_URL)
  const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
 
  const props = parsed?.propiedades?.propiedad || []
 
- const results=[]
-
- for(const p of props){
-
+ return props.map(p=>{
   const fotos=[]
   for(let i=1;i<=20;i++){
    if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
   }
 
-  const property={
+  return {
    referencia:p.ref,
    titulo:p.titulo1 || "",
    descripcion:p.descrip1 || "",
@@ -64,14 +61,10 @@ async function cargarXML(){
    fotos,
    disponible:true
   }
-
-  results.push(property)
- }
-
- return results
+ })
 }
 
-// 🔹 sync base44 sin duplicados
+// 🔹 SYNC
 async function syncBase44(propiedades){
 
  const existing = await axios.get(BASE44_URL,{
@@ -84,69 +77,82 @@ async function syncBase44(propiedades){
 
   const yaExiste = existentes.find(x=>x.referencia === p.referencia)
 
-  try{
-
-   if(yaExiste){
-
-    await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
-     headers:{
-      api_key:API_KEY,
-      "Content-Type":"application/json"
-     }
-    })
-
-    console.log("Actualizado:",p.referencia)
-
-   }else{
-
-    await axios.post(BASE44_URL,p,{
-     headers:{
-      api_key:API_KEY,
-      "Content-Type":"application/json"
-     }
-    })
-
-    console.log("Creado:",p.referencia)
-   }
-
-  }catch(e){
-   console.log("Error:",p.referencia)
+  if(yaExiste){
+   await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
+    headers:{api_key:API_KEY}
+   })
+  }else{
+   await axios.post(BASE44_URL,p,{
+    headers:{api_key:API_KEY}
+   })
   }
 
   await delay(300)
  }
 }
 
-// 🔥 CREAR CHAT PRIVADO
+// 🔥 CREAR O RECUPERAR CHAT
 app.post("/chat/create", async (req,res)=>{
 
  const {userId, inmuebleRef} = req.body
 
+ const snapshot = await db.collection("chats")
+  .where("userId","==",userId)
+  .where("inmuebleRef","==",inmuebleRef)
+  .get()
+
+ if(!snapshot.empty){
+  return res.json({chatId: snapshot.docs[0].id})
+ }
+
  const chatRef = await db.collection("chats").add({
   userId,
   inmuebleRef,
-  createdAt: new Date()
+  createdAt:new Date()
  })
 
  res.json({chatId: chatRef.id})
 })
 
-// 🔥 ENVIAR MENSAJE
+// 🔥 ENVIAR MENSAJE + PUSH
 app.post("/chat/send", async (req,res)=>{
 
  const {chatId, senderId, text} = req.body
+
+ if(!chatId){
+  return res.json({error:"chatId requerido"})
+ }
 
  await db.collection("messages").add({
   chatId,
   senderId,
   text,
-  createdAt: new Date()
+  createdAt:new Date()
  })
+
+ // 🔔 buscar usuario para notificar
+ const chatDoc = await db.collection("chats").doc(chatId).get()
+ const chatData = chatDoc.data()
+
+ const userId = chatData.userId
+
+ const userDoc = await db.collection("users").doc(userId).get()
+ const userData = userDoc.data()
+
+ if(userData?.fcmToken){
+  await admin.messaging().send({
+   token:userData.fcmToken,
+   notification:{
+    title:"Nuevo mensaje",
+    body:text
+   }
+  })
+ }
 
  res.json({ok:true})
 })
 
-// 🔔 NOTIFICACIÓN
+// 🔔 NOTIFICACIÓN MANUAL
 app.post("/notify", async (req,res)=>{
 
  const {userId, title, body} = req.body
@@ -162,18 +168,13 @@ app.post("/notify", async (req,res)=>{
  res.json({ok:true})
 })
 
-// 🔥 SYNC MANUAL
+// 🔄 SYNC
 app.post("/sync", async (req,res)=>{
-
  const props = await cargarXML()
  await syncBase44(props)
-
  res.json({ok:true})
 })
 
-// STATUS
-app.get("/",(req,res)=>{
- res.json({status:"ok"})
-})
+app.get("/",(req,res)=>res.json({status:"ok"}))
 
 app.listen(PORT,()=>console.log("Servidor activo"))
