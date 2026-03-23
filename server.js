@@ -4,7 +4,6 @@ const xml2js = require("xml2js")
 const axios = require("axios")
 const admin = require("firebase-admin")
 
-// 🔥 FIREBASE ADMIN
 const serviceAccount = require("./firebase-key.json")
 
 admin.initializeApp({
@@ -19,10 +18,8 @@ app.use(express.json())
 
 const PORT = process.env.PORT || 3000
 
-// 🔗 XML INMOVILLA
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
-// 🔗 BASE44
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const LEADS_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Lead"
 const NOTI_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Notificacion"
@@ -30,12 +27,10 @@ const RESERVA_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/en
 
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// 🔹 DELAY
 function delay(ms){
  return new Promise(r=>setTimeout(r,ms))
 }
 
-// 🔹 SCORING LEADS
 function calcularScore(mensaje){
  const m = (mensaje || "").toLowerCase()
  if(m.includes("visita") || m.includes("comprar") || m.includes("interesado")){
@@ -44,13 +39,14 @@ function calcularScore(mensaje){
  return 50
 }
 
-// 🔹 CARGAR XML
+// 🔹 XML
 async function cargarXML(){
 
  const response = await axios.get(XML_URL)
  const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
 
  const props = parsed?.propiedades?.propiedad || []
+
  const results=[]
 
  for(const p of props){
@@ -60,37 +56,29 @@ async function cargarXML(){
    if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
   }
 
-  const property = {
+  results.push({
    referencia: p.ref,
    titulo: p.titulo1 || "",
    descripcion: p.descrip1 || "",
    precio: parseFloat(p.precioinmo || 0),
-
    ciudad: p.ciudad || "",
    zona: p.zona || "",
-
    tipo_inmueble: p.tipo_ofer,
    operacion: p.accion?.toLowerCase() || "venta",
-
    habitaciones: parseInt(p.habitaciones || 0),
    banos: parseInt(p.banyos || 0),
-
    superficie: parseFloat(p.m_cons || 0),
-
    latitud: parseFloat(p.latitud || 0),
    longitud: parseFloat(p.altitud || 0),
-
    fotos,
    disponible: true
-  }
-
-  results.push(property)
+  })
  }
 
  return results
 }
 
-// 🔹 SYNC BASE44 SIN DUPLICADOS
+// 🔹 sync
 async function syncBase44(propiedades){
 
  const existing = await axios.get(BASE44_URL,{
@@ -104,37 +92,56 @@ async function syncBase44(propiedades){
    const yaExiste = existing.data.find(x=>x.referencia === p.referencia)
 
    if(yaExiste){
-
     await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
-     headers:{
-      api_key:API_KEY,
-      "Content-Type":"application/json"
-     }
+     headers:{api_key:API_KEY}
     })
-
-    console.log("Actualizado:",p.referencia)
-
    }else{
-
     await axios.post(BASE44_URL,p,{
-     headers:{
-      api_key:API_KEY,
-      "Content-Type":"application/json"
-     }
+     headers:{api_key:API_KEY}
     })
-
-    console.log("Creado:",p.referencia)
    }
 
   }catch(e){
-   console.log("Error propiedad:",p.referencia)
+   console.log("Error:",p.referencia)
   }
 
   await delay(300)
  }
 }
 
-// 🔥 CREAR LEAD + FIREBASE + NOTIFICACIÓN
+// 🔥 CHAT PRIVADO
+app.post("/chat", async (req,res)=>{
+
+ const {usuario_id, mensaje, inmueble_id} = req.body
+
+ try{
+
+  const chatId = `${usuario_id}_${inmueble_id}`
+
+  const chatRef = db.collection("chats").doc(chatId)
+
+  await chatRef.set({
+   participantes:[usuario_id,"admin"],
+   inmueble_id,
+   lastMessage:mensaje,
+   timestamp:new Date()
+  },{merge:true})
+
+  await chatRef.collection("mensajes").add({
+   usuario:usuario_id,
+   mensaje,
+   timestamp:new Date()
+  })
+
+  res.json({ok:true})
+
+ }catch(e){
+  res.json({error:true})
+ }
+
+})
+
+// 🔥 LEAD
 app.post("/lead", async (req,res)=>{
 
  const {nombre,email,telefono,mensaje,inmueble_id} = req.body
@@ -143,59 +150,14 @@ app.post("/lead", async (req,res)=>{
 
   const score = calcularScore(mensaje)
 
-  // Base44
   await axios.post(LEADS_URL,{
-   nombre,
-   email,
-   telefono,
-   mensaje,
-   inmueble_id,
-   score,
-   estado:"nuevo"
+   nombre,email,telefono,mensaje,inmueble_id,score,estado:"nuevo"
   },{
    headers:{api_key:API_KEY}
   })
 
-  // Firebase (guardar lead)
   await db.collection("leads").add({
-   nombre,
-   email,
-   telefono,
-   mensaje,
-   inmueble_id,
-   score,
-   timestamp:new Date()
-  })
-
-  // Firebase notificación push
-  await admin.messaging().send({
-   notification:{
-    title:"Nuevo lead 🔥",
-    body:`${nombre} está interesado`
-   },
-   topic:"admins"
-  })
-
-  res.json({ok:true})
-
- }catch(e){
-  console.log(e.message)
-  res.json({error:true})
- }
-
-})
-
-// 🔥 CHAT TIEMPO REAL
-app.post("/chat", async (req,res)=>{
-
- const {usuario,mensaje,inmueble_id} = req.body
-
- try{
-
-  await db.collection("chats").add({
-   usuario,
-   mensaje,
-   inmueble_id,
+   nombre,email,telefono,mensaje,inmueble_id,score,
    timestamp:new Date()
   })
 
@@ -207,28 +169,7 @@ app.post("/chat", async (req,res)=>{
 
 })
 
-// 🔥 MÉTRICAS
-app.post("/evento", async (req,res)=>{
-
- const {tipo,inmueble_id} = req.body
-
- try{
-
-  await db.collection("eventos").add({
-   tipo,
-   inmueble_id,
-   timestamp:new Date()
-  })
-
-  res.json({ok:true})
-
- }catch(e){
-  res.json({error:true})
- }
-
-})
-
-// 🔥 RESERVAS
+// 🔥 RESERVA
 app.post("/reserva", async (req,res)=>{
 
  const {usuario_id,inmueble_id,fecha,hora} = req.body
@@ -236,11 +177,7 @@ app.post("/reserva", async (req,res)=>{
  try{
 
   await axios.post(RESERVA_URL,{
-   usuario_id,
-   inmueble_id,
-   fecha,
-   hora,
-   estado:"pendiente"
+   usuario_id,inmueble_id,fecha,hora,estado:"pendiente"
   },{
    headers:{api_key:API_KEY}
   })
@@ -253,26 +190,20 @@ app.post("/reserva", async (req,res)=>{
 
 })
 
-// 🔥 SYNC MANUAL
+// 🔥 SYNC
 app.post("/sync", async (req,res)=>{
 
- try{
+ const props = await cargarXML()
+ await syncBase44(props)
 
-  const props = await cargarXML()
-  await syncBase44(props)
-
-  res.json({ok:true})
-
- }catch(e){
-  res.json({error:true})
- }
+ res.json({ok:true})
 
 })
 
 app.get("/",(req,res)=>{
- res.json({status:"🔥 SERVER PRO FIREBASE OK"})
+ res.json({status:"🔥 TODO OK PRO"})
 })
 
 app.listen(PORT,()=>{
- console.log("Servidor PRO con Firebase 🚀")
+ console.log("Servidor PRO 🚀")
 })
