@@ -19,7 +19,7 @@ admin.initializeApp({
 
 const db = admin.firestore()
 
-// 🔗 XML INMOVILLA
+// 🔗 XML
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 // 🔗 BASE44
@@ -27,14 +27,12 @@ const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/ent
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
 // 🔹 delay
-function delay(ms){
- return new Promise(r=>setTimeout(r,ms))
-}
+const delay = ms => new Promise(r=>setTimeout(r,ms))
 
-// 🔹 CARGAR XML
+// 🔹 XML
 async function cargarXML(){
- const response = await axios.get(XML_URL)
- const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
+ const res = await axios.get(XML_URL)
+ const parsed = await xml2js.parseStringPromise(res.data,{explicitArray:false})
 
  const props = parsed?.propiedades?.propiedad || []
 
@@ -64,7 +62,7 @@ async function cargarXML(){
  })
 }
 
-// 🔹 SYNC BASE44
+// 🔹 SYNC
 async function syncBase44(propiedades){
 
  const existing = await axios.get(BASE44_URL,{
@@ -81,21 +79,19 @@ async function syncBase44(propiedades){
    await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
     headers:{api_key:API_KEY}
    })
-    console.log("Actualizado:", p.referencia)
   }else{
    await axios.post(BASE44_URL,p,{
     headers:{api_key:API_KEY}
    })
-    console.log("Creado:", p.referencia)
   }
 
   await delay(300)
  }
 }
 
-// 🔥 USUARIOS
+// 🔥 USER CREATE (ROL DEFAULT)
 app.post("/user/create", async (req,res)=>{
- const {userId, email} = req.body
+ const {userId,email} = req.body
 
  await db.collection("users").doc(userId).set({
   email,
@@ -106,29 +102,34 @@ app.post("/user/create", async (req,res)=>{
  res.json({ok:true})
 })
 
-// 🔥 OBTENER COMERCIALES
-app.get("/users/comerciales", async (req,res)=>{
+// 🔥 CAMBIAR ROL
+app.post("/user/rol", async (req,res)=>{
+ const {userId, rol} = req.body
 
+ await db.collection("users").doc(userId).update({rol})
+
+ res.json({ok:true})
+})
+
+// 🔥 COMERCIALES
+app.get("/users/comerciales", async (req,res)=>{
  const snapshot = await db.collection("users")
   .where("rol","==","comercial")
   .get()
 
- const comerciales = snapshot.docs.map(doc=>({
+ const data = snapshot.docs.map(doc=>({
   id:doc.id,
   ...doc.data()
  }))
 
- res.json(comerciales)
+ res.json(data)
 })
 
 // 🔥 LEADS
 app.post("/lead/create", async (req,res)=>{
+ const {nombre,email,telefono,inmuebleRef,userId} = req.body
 
- console.log("LEAD:", req.body)
-
- const {nombre, email, telefono, inmuebleRef, userId} = req.body
-
- const leadRef = await db.collection("leads").add({
+ const lead = await db.collection("leads").add({
   nombre,
   email,
   telefono,
@@ -139,11 +140,20 @@ app.post("/lead/create", async (req,res)=>{
   createdAt:new Date()
  })
 
- res.json({ok:true, leadId:leadRef.id})
+ res.json({ok:true, id:lead.id})
 })
 
-app.post("/lead/asignar", async (req,res)=>{
+// 🔥 BORRAR LEAD
+app.post("/lead/delete", async (req,res)=>{
+ const {leadId} = req.body
 
+ await db.collection("leads").doc(leadId).delete()
+
+ res.json({ok:true})
+})
+
+// 🔥 ASIGNAR
+app.post("/lead/asignar", async (req,res)=>{
  const {leadId, comercialId} = req.body
 
  await db.collection("leads").doc(leadId).update({
@@ -153,28 +163,26 @@ app.post("/lead/asignar", async (req,res)=>{
  res.json({ok:true})
 })
 
+// 🔥 ESTADO
 app.post("/lead/estado", async (req,res)=>{
-
  const {leadId, estado} = req.body
 
- await db.collection("leads").doc(leadId).update({
-  estado
- })
+ await db.collection("leads").doc(leadId).update({estado})
 
  res.json({ok:true})
 })
 
+// 🔥 GET LEADS
 app.post("/leads/get", async (req,res)=>{
-
  const {userId, rol} = req.body
 
  let query
 
- if(rol === "admin"){
+ if(rol==="admin"){
   query = await db.collection("leads").get()
  }
 
- if(rol === "comercial"){
+ if(rol==="comercial"){
   query = await db.collection("leads")
    .where("asignadoA","==",userId)
    .get()
@@ -188,51 +196,13 @@ app.post("/leads/get", async (req,res)=>{
  res.json(leads)
 })
 
-// 🔥 CHAT
-app.post("/chat/create", async (req,res)=>{
-
- const {userId, inmuebleRef} = req.body
-
- const snapshot = await db.collection("chats")
-  .where("userId","==",userId)
-  .where("inmuebleRef","==",inmuebleRef)
-  .get()
-
- if(!snapshot.empty){
-  return res.json({chatId: snapshot.docs[0].id})
- }
-
- const chatRef = await db.collection("chats").add({
-  userId,
-  inmuebleRef,
-  createdAt:new Date()
- })
-
- res.json({chatId: chatRef.id})
-})
-
-app.post("/chat/send", async (req,res)=>{
-
- const {chatId, senderId, text} = req.body
-
- await db.collection("messages").add({
-  chatId,
-  senderId,
-  text,
-  createdAt:new Date()
- })
-
- res.json({ok:true})
-})
-
-// 🔥 SYNC XML
+// 🔥 SYNC API
 app.post("/sync", async (req,res)=>{
  const props = await cargarXML()
  await syncBase44(props)
  res.json({ok:true})
 })
 
-// 🔥 HEALTHCHECK
 app.get("/",(req,res)=>res.json({status:"ok"}))
 
 app.listen(PORT,()=>console.log("Servidor activo"))
