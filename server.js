@@ -129,23 +129,21 @@ app.post("/api", async (req,res)=>{
    return res.json({ok:true})
   }
 
-  res.json({error:"acción no válida"})
+  return res.json({error:"acción no válida"})
 
  }catch(e){
   console.log(e)
-  res.json({error:true})
+  return res.json({error:true})
  }
 
 })
 
+// 🔹 HEALTH CHECK
 app.get("/",(req,res)=>{
  res.json({status:"ok"})
 })
 
+// 🔹 START SERVER
 app.listen(PORT,()=>{
- console.log("Servidor activo")
+ console.log("Servidor activo en puerto " + PORT)
 })
-})
-app.get("/",(req,res)=>res.json({status:"ok"}))
-
-app.listen(PORT,()=>console.log("Servidor activo"))
