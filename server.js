@@ -2,7 +2,6 @@ const express = require("express")
 const cors = require("cors")
 const xml2js = require("xml2js")
 const axios = require("axios")
-const admin = require("firebase-admin")
 
 // 🔥 FIREBASE
 const admin = require("firebase-admin")
