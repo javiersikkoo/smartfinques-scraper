@@ -19,7 +19,7 @@ admin.initializeApp({
 
 const db = admin.firestore()
 
-// 🔗 XML
+// 🔗 XML INMOVILLA
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 
 // 🔗 BASE44
@@ -64,7 +64,7 @@ async function cargarXML(){
  })
 }
 
-// 🔹 SYNC
+// 🔹 SYNC BASE44
 async function syncBase44(propiedades){
 
  const existing = await axios.get(BASE44_URL,{
@@ -81,17 +81,114 @@ async function syncBase44(propiedades){
    await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
     headers:{api_key:API_KEY}
    })
+    console.log("Actualizado:", p.referencia)
   }else{
    await axios.post(BASE44_URL,p,{
     headers:{api_key:API_KEY}
    })
+    console.log("Creado:", p.referencia)
   }
 
   await delay(300)
  }
 }
 
-// 🔥 CREAR O RECUPERAR CHAT
+// 🔥 USUARIOS
+app.post("/user/create", async (req,res)=>{
+ const {userId, email} = req.body
+
+ await db.collection("users").doc(userId).set({
+  email,
+  rol:"user",
+  createdAt:new Date()
+ })
+
+ res.json({ok:true})
+})
+
+// 🔥 OBTENER COMERCIALES
+app.get("/users/comerciales", async (req,res)=>{
+
+ const snapshot = await db.collection("users")
+  .where("rol","==","comercial")
+  .get()
+
+ const comerciales = snapshot.docs.map(doc=>({
+  id:doc.id,
+  ...doc.data()
+ }))
+
+ res.json(comerciales)
+})
+
+// 🔥 LEADS
+app.post("/lead/create", async (req,res)=>{
+
+ console.log("LEAD:", req.body)
+
+ const {nombre, email, telefono, inmuebleRef, userId} = req.body
+
+ const leadRef = await db.collection("leads").add({
+  nombre,
+  email,
+  telefono,
+  inmuebleRef,
+  userId,
+  estado:"nuevo",
+  asignadoA:null,
+  createdAt:new Date()
+ })
+
+ res.json({ok:true, leadId:leadRef.id})
+})
+
+app.post("/lead/asignar", async (req,res)=>{
+
+ const {leadId, comercialId} = req.body
+
+ await db.collection("leads").doc(leadId).update({
+  asignadoA:comercialId
+ })
+
+ res.json({ok:true})
+})
+
+app.post("/lead/estado", async (req,res)=>{
+
+ const {leadId, estado} = req.body
+
+ await db.collection("leads").doc(leadId).update({
+  estado
+ })
+
+ res.json({ok:true})
+})
+
+app.post("/leads/get", async (req,res)=>{
+
+ const {userId, rol} = req.body
+
+ let query
+
+ if(rol === "admin"){
+  query = await db.collection("leads").get()
+ }
+
+ if(rol === "comercial"){
+  query = await db.collection("leads")
+   .where("asignadoA","==",userId)
+   .get()
+ }
+
+ const leads = query.docs.map(doc=>({
+  id:doc.id,
+  ...doc.data()
+ }))
+
+ res.json(leads)
+})
+
+// 🔥 CHAT
 app.post("/chat/create", async (req,res)=>{
 
  const {userId, inmuebleRef} = req.body
@@ -114,14 +211,9 @@ app.post("/chat/create", async (req,res)=>{
  res.json({chatId: chatRef.id})
 })
 
-// 🔥 ENVIAR MENSAJE + PUSH
 app.post("/chat/send", async (req,res)=>{
 
  const {chatId, senderId, text} = req.body
-
- if(!chatId){
-  return res.json({error:"chatId requerido"})
- }
 
  await db.collection("messages").add({
   chatId,
@@ -130,123 +222,17 @@ app.post("/chat/send", async (req,res)=>{
   createdAt:new Date()
  })
 
- // 🔔 buscar usuario para notificar
- const chatDoc = await db.collection("chats").doc(chatId).get()
- const chatData = chatDoc.data()
-
- const userId = chatData.userId
-
- const userDoc = await db.collection("users").doc(userId).get()
- const userData = userDoc.data()
-
- if(userData?.fcmToken){
-  await admin.messaging().send({
-   token:userData.fcmToken,
-   notification:{
-    title:"Nuevo mensaje",
-    body:text
-   }
-  })
- }
-
  res.json({ok:true})
 })
 
-// 🔔 NOTIFICACIÓN MANUAL
-app.post("/notify", async (req,res)=>{
-
- const {userId, title, body} = req.body
-
- await db.collection("notifications").add({
-  userId,
-  title,
-  body,
-  read:false,
-  createdAt:new Date()
- })
-
- res.json({ok:true})
-})
-
-// 🔄 SYNC
+// 🔥 SYNC XML
 app.post("/sync", async (req,res)=>{
  const props = await cargarXML()
  await syncBase44(props)
  res.json({ok:true})
 })
 
+// 🔥 HEALTHCHECK
 app.get("/",(req,res)=>res.json({status:"ok"}))
 
 app.listen(PORT,()=>console.log("Servidor activo"))
-
-// 🔥 CREAR LEAD AL CONTACTAR
-app.post("/lead/create", async (req,res)=>{
-
- const {nombre, email, telefono, inmuebleRef, userId} = req.body
-
- try{
-
-  const leadRef = await db.collection("leads").add({
-   nombre,
-   email,
-   telefono,
-   inmuebleRef,
-   userId,
-   estado:"nuevo",
-   asignadoA:null,
-   createdAt:new Date()
-  })
-
-  res.json({ok:true, leadId:leadRef.id})
-
- }catch(e){
-  res.json({error:true})
- }
-})
-// 🔥 CAMBIAR ESTADO LEAD
-app.post("/lead/estado", async (req,res)=>{
-
- const {leadId, estado} = req.body
-
- try{
-
-  await db.collection("leads").doc(leadId).update({
-   estado
-  })
-
-  res.json({ok:true})
-
- }catch(e){
-  res.json({error:true})
- }
-})
-// 🔥 OBTENER LEADS (SEGÚN ROL)
-app.post("/leads/get", async (req,res)=>{
-
- const {userId, rol} = req.body
-
- try{
-
-  let query
-
-  if(rol === "admin"){
-   query = await db.collection("leads").get()
-  }
-
-  if(rol === "comercial"){
-   query = await db.collection("leads")
-    .where("asignadoA","==",userId)
-    .get()
-  }
-
-  const leads = query.docs.map(doc=>({
-   id:doc.id,
-   ...doc.data()
-  }))
-
-  res.json(leads)
-
- }catch(e){
-  res.json({error:true})
- }
-})
