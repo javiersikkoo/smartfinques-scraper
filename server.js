@@ -176,3 +176,9 @@ app.get("/",(req,res)=>{
 app.listen(PORT,()=>{
   console.log("Servidor activo en puerto " + PORT)
 })
+
+setInterval(async () => {
+  console.log("Auto sync ejecutado")
+  const props = await cargarXML()
+  await syncBase44(props)
+}, 1000 * 60 * 10) // cada 10 minutos
