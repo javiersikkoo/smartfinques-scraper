@@ -146,7 +146,6 @@ app.listen(PORT,()=>{
  console.log("Servidor activo")
 })
 })
-
 app.get("/",(req,res)=>res.json({status:"ok"}))
 
 app.listen(PORT,()=>console.log("Servidor activo"))
