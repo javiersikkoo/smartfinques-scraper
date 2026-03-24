@@ -26,7 +26,7 @@ const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// 🔹 delay
+// 🔹 DELAY
 const delay = ms => new Promise(r=>setTimeout(r,ms))
 
 // 🔹 XML
@@ -64,7 +64,6 @@ async function cargarXML(){
 
 // 🔹 SYNC
 async function syncBase44(propiedades){
-
  const existing = await axios.get(BASE44_URL,{
   headers:{api_key:API_KEY}
  })
@@ -89,24 +88,17 @@ async function syncBase44(propiedades){
  }
 }
 
-// 🔥 USER CREATE (ROL DEFAULT)
+// 🔥 USER CREATE
 app.post("/user/create", async (req,res)=>{
  const {userId,email} = req.body
+
+ console.log("USER CREATE:", req.body)
 
  await db.collection("users").doc(userId).set({
   email,
   rol:"user",
   createdAt:new Date()
  })
-
- res.json({ok:true})
-})
-
-// 🔥 CAMBIAR ROL
-app.post("/user/rol", async (req,res)=>{
- const {userId, rol} = req.body
-
- await db.collection("users").doc(userId).update({rol})
 
  res.json({ok:true})
 })
@@ -125,8 +117,11 @@ app.get("/users/comerciales", async (req,res)=>{
  res.json(data)
 })
 
-// 🔥 LEADS
+// 🔥 CREAR LEAD
 app.post("/lead/create", async (req,res)=>{
+
+ console.log("LEAD RECIBIDO:", req.body)
+
  const {nombre,email,telefono,inmuebleRef,userId} = req.body
 
  const lead = await db.collection("leads").add({
@@ -143,22 +138,26 @@ app.post("/lead/create", async (req,res)=>{
  res.json({ok:true, id:lead.id})
 })
 
-// 🔥 BORRAR LEAD
-app.post("/lead/delete", async (req,res)=>{
- const {leadId} = req.body
+// 🔥 NOTIFICACIONES
+async function crearNotificacion(userId, mensaje){
+ await db.collection("notificaciones").add({
+  userId,
+  mensaje,
+  leido:false,
+  createdAt:new Date()
+ })
+}
 
- await db.collection("leads").doc(leadId).delete()
-
- res.json({ok:true})
-})
-
-// 🔥 ASIGNAR
+// 🔥 ASIGNAR + NOTIFICAR
 app.post("/lead/asignar", async (req,res)=>{
+
  const {leadId, comercialId} = req.body
 
  await db.collection("leads").doc(leadId).update({
   asignadoA:comercialId
  })
+
+ await crearNotificacion(comercialId, "Nuevo lead asignado")
 
  res.json({ok:true})
 })
@@ -172,8 +171,18 @@ app.post("/lead/estado", async (req,res)=>{
  res.json({ok:true})
 })
 
+// 🔥 BORRAR
+app.post("/lead/delete", async (req,res)=>{
+ const {leadId} = req.body
+
+ await db.collection("leads").doc(leadId).delete()
+
+ res.json({ok:true})
+})
+
 // 🔥 GET LEADS
 app.post("/leads/get", async (req,res)=>{
+
  const {userId, rol} = req.body
 
  let query
@@ -196,7 +205,30 @@ app.post("/leads/get", async (req,res)=>{
  res.json(leads)
 })
 
-// 🔥 SYNC API
+// 🔥 STATS COMERCIAL
+app.post("/stats/comercial", async (req,res)=>{
+
+ const {userId} = req.body
+
+ const snapshot = await db.collection("leads")
+  .where("asignadoA","==",userId)
+  .get()
+
+ let total=0, nuevo=0, contactado=0, cerrado=0
+
+ snapshot.forEach(doc=>{
+  total++
+  const estado = doc.data().estado
+
+  if(estado==="nuevo") nuevo++
+  if(estado==="contactado") contactado++
+  if(estado==="cerrado") cerrado++
+ })
+
+ res.json({total,nuevo,contactado,cerrado})
+})
+
+// 🔥 SYNC
 app.post("/sync", async (req,res)=>{
  const props = await cargarXML()
  await syncBase44(props)
