@@ -59,7 +59,7 @@ const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// 🔹 UTILS
+// 🔹 UTIL
 function delay(ms){
   return new Promise(r=>setTimeout(r,ms))
 }
@@ -120,7 +120,7 @@ async function syncBase44(propiedades){
   }
 }
 
-// 🔥 FIREBASE FUNCIONES
+// 🔥 FIREBASE
 async function guardarLead(data){
   await db.collection("leads").add({
     ...data,
@@ -135,18 +135,36 @@ async function crearUsuario(user){
   })
 }
 
-// 🔥 API
+// 🔥 ENDPOINT SYNC (EL IMPORTANTE)
+app.post("/sync", async (req, res) => {
+  try {
+    console.log("🔄 Sync manual iniciado")
+
+    const props = await cargarXML()
+    await syncBase44(props)
+
+    console.log("✅ Sync completado:", props.length)
+
+    res.json({
+      ok: true,
+      total: props.length
+    })
+
+  } catch (error) {
+    console.log("❌ Error en sync:", error)
+
+    res.status(500).json({
+      ok: false
+    })
+  }
+})
+
+// 🔥 API GENERAL
 app.post("/api", async (req,res)=>{
 
   const {action,data} = req.body
 
   try{
-
-    if(action === "sync"){
-      const props = await cargarXML()
-      await syncBase44(props)
-      return res.json({ok:true})
-    }
 
     if(action === "lead"){
       await guardarLead(data)
