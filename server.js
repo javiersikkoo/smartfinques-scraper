@@ -47,150 +47,97 @@ admin.initializeApp({
 
 const db = admin.firestore()
 
-// 🔹 EXPRESS
 const app = express()
 app.use(cors())
 app.use(express.json())
 
 const PORT = process.env.PORT || 3000
 
-// 🔹 CONFIG
 const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// 🔹 UTIL
 function delay(ms){
   return new Promise(r=>setTimeout(r,ms))
 }
 
-// 🔹 CARGAR XML
-async function cargarXML(){
-  const response = await axios.get(XML_URL)
-  const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
-  const props = parsed?.propiedades?.propiedad || []
+// 🔥 SYNC CON LOGS VISUALES
+app.get("/sync", async (req, res) => {
 
-  const results=[]
+  res.setHeader("Content-Type", "text/html; charset=utf-8")
 
-  for(const p of props){
-
-    const fotos=[]
-    for(let i=1;i<=20;i++){
-      if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
-    }
-
-    results.push({
-      referencia: p.ref,
-      titulo: p.titulo1 || "",
-      descripcion: p.descrip1 || "",
-      precio: parseFloat(p.precioinmo || 0),
-      ciudad: p.ciudad,
-      zona: p.zona,
-      latitud: parseFloat(p.latitud || 0),
-      longitud: parseFloat(p.altitud || 0),
-      fotos
-    })
+  function log(msg){
+    res.write(msg + "<br>")
+    console.log(msg)
   }
-
-  return results
-}
-
-// 🔹 SYNC BASE44
-async function syncBase44(propiedades){
-
-  const existing = await axios.get(BASE44_URL,{
-    headers:{api_key:API_KEY}
-  })
-
-  for(const p of propiedades){
-
-    const yaExiste = existing.data.find(x=>x.referencia === p.referencia)
-
-    if(yaExiste){
-      await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
-        headers:{api_key:API_KEY}
-      })
-    }else{
-      await axios.post(BASE44_URL,p,{
-        headers:{api_key:API_KEY}
-      })
-    }
-
-    await delay(300)
-  }
-}
-
-// 🔥 FIREBASE
-async function guardarLead(data){
-  await db.collection("leads").add({
-    ...data,
-    createdAt: new Date()
-  })
-}
-
-async function crearUsuario(user){
-  await db.collection("users").doc(user.id).set({
-    email:user.email,
-    role:"user"
-  })
-}
-
-// 🔥 ENDPOINT SYNC (EL IMPORTANTE)
-app.post("/sync", async (req, res) => {
-  try {
-    console.log("🔄 Sync manual iniciado")
-
-    const props = await cargarXML()
-    await syncBase44(props)
-
-    console.log("✅ Sync completado:", props.length)
-
-    res.json({
-      ok: true,
-      total: props.length
-    })
-
-  } catch (error) {
-    console.log("❌ Error en sync:", error)
-
-    res.status(500).json({
-      ok: false
-    })
-  }
-})
-
-// 🔥 API GENERAL
-app.post("/api", async (req,res)=>{
-
-  const {action,data} = req.body
 
   try{
 
-    if(action === "lead"){
-      await guardarLead(data)
-      return res.json({ok:true})
+    log("🔄 Iniciando sync...")
+    log("📥 Descargando XML...")
+
+    const response = await axios.get(XML_URL)
+    const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
+    const props = parsed?.propiedades?.propiedad || []
+
+    log("📊 Propiedades encontradas: " + props.length)
+
+    const existing = await axios.get(BASE44_URL,{
+      headers:{api_key:API_KEY}
+    })
+
+    for(const p of props){
+
+      const fotos=[]
+      for(let i=1;i<=20;i++){
+        if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
+      }
+
+      const property = {
+        referencia: p.ref,
+        titulo: p.titulo1 || "",
+        descripcion: p.descrip1 || "",
+        precio: parseFloat(p.precioinmo || 0),
+        ciudad: p.ciudad,
+        zona: p.zona,
+        latitud: parseFloat(p.latitud || 0),
+        longitud: parseFloat(p.altitud || 0),
+        fotos
+      }
+
+      const yaExiste = existing.data.find(x=>x.referencia === property.referencia)
+
+      if(yaExiste){
+        await axios.put(`${BASE44_URL}/${yaExiste.id}`,property,{
+          headers:{api_key:API_KEY}
+        })
+        log("🔁 Actualizado: " + property.referencia)
+      }else{
+        await axios.post(BASE44_URL,property,{
+          headers:{api_key:API_KEY}
+        })
+        log("🆕 Creado: " + property.referencia)
+      }
+
+      await delay(200)
     }
 
-    if(action === "crearUsuario"){
-      await crearUsuario(data)
-      return res.json({ok:true})
-    }
+    log("✅ Sync completado")
 
-    res.json({error:"acción no válida"})
+    res.end()
 
   }catch(e){
-    console.log(e)
-    res.json({error:true})
+    log("❌ Error: " + e.message)
+    res.end()
   }
 
 })
 
-// 🔹 ROOT
+// ROOT
 app.get("/",(req,res)=>{
   res.json({status:"ok"})
 })
 
-// 🔹 START
 app.listen(PORT,()=>{
   console.log("Servidor activo en puerto " + PORT)
 })
