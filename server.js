@@ -9,43 +9,19 @@ const admin = require("firebase-admin")
 const serviceAccount = {
   type: "service_account",
   project_id: "smartfinques-app-7f09c",
-  private_key_id: "ec4b13e4218cb5cae9fad6f95b882f193b5923ef",
-  private_key: `-----BEGIN PRIVATE KEY-----
-MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDMuHrsd4FRZqqU
-rdDX+wDUW23vQMrqoTE1DpIploBDxs/wL2A2cN+kh1QHB+nr0ZLRzztKY+P4Tu5r
-SWygTPi4LPrz3A93UgO3s73sUNPPC5KJgeVj96fnUzLPGidMIZvLgx5BvJM93HqU
-vH9sZY/FcTlwT98kKG8rVO3rl7poSDXCkYHp3lwxlXRhdeZDe77a4XPV8FSW1zwz
-BUoV+EMegWG8Op00Qc8Y3+wKTUT/nH3/dzCMzUgUWA4Mb2ksy47MgjLf8XeFNtj8
-Ma/j25wswoN2q/RmtG5D6YWjVm71CYkLrFNlR73kObiK2loWKqQ/gLlsZpRw59pR
-R0FRq4J3AgMBAAECggEAAPH+qmOhB9odqa4W3O/UiojyKIuVbiDYuSrDmHmQqXCv
-4br2RbF3bQ2tYOGztDLmxFhS7eqy7qDmD2VgyGmhWBI28iBlPFkySuPv434S0nUn
-rv0EQMJhEcpgtiUGdqibiASTvrpE9GYrw/Y1UkOVLPvB7177Wi0VAWg3ct+BQLEW
-O7a+eRbbI5Ab1f33v+edMxhr8M9VpD31OW5LQNwphhGWHzkKWnnM3h31z+gpx+mO
-25riAXtL130W8RnCVxj8kD+5CW+KbDAh6ovCeRRX6G/05LTfDSm8dS1ul6npPDfi
-mfURrscA47ltiEsLZmB58IF8dN3SjDPp8dbMrCUAMQKBgQD+lqdWzDfpLZPTJ+Su
-AmHEwWGeLoiTU7uL0NkO2lgsD0w2dPuF8HBnqs/TJFx67bT5I7N0/y6o/WBQP7bu
-OXCcCtWDPXkxeOdshut0RSolQqutHXKrfSvLoxi17BvWbNC4OI34XkXysLtq+3oX
-OmkaTY7dSev+DnV4KCnnlHIAdQKBgQDN2wwb5kEhtaSxRyN2s+jCDn836iIiczYK
-LoV0TW3rQ8JZDm4KyiFZcahMrd4unCjaKY1FEi33L7BRGIYyH8jRsfHgwuiUoFbB
-ACfT1VC15WNo2qjEAK84LPKVhiC3hyTcR+EZsXCza1GCoszvAypM2yJfJ7WE7Gcy
-Nw/F37rZuwKBgFqCLr2h3qKsTGh+P0NJn352jYDR5EYUN5GuTuyD3WLUkXCuyBjG
-8P8576aNv78IMRV9hrgqXGlBovMEo8EvdIRVKbD9ss9Ov1+K27w7No+Gk0f5NyIW
-XvKHaiqK5R6nEtDbckWBJnbwM8EF5FLLtj/eoNK1DAwHEeYEyVkGIj1dAoGAbJ1e
-Bz53MSUZL5x8Xr5QWkux3jvAJPMrGTYwngvYqmCHI9wUPccmz33Dsimu6GLmvy1b
-Z41PCXR1EGTjMYFJwTKlj9TnSLxM6ep+GSwdOMw+pm1wzHIcAYTdvf0WOB+rWDro
-z1irQU+no0jo3leKMyEQQqq+ANOHI5yfyuTgPs8CgYAnfKymQ1EcdM6AxcSixYPg
-rhcjFNT3m4fLmwsfDm8U2e52GV/zc9hWgXrnnYco0UEx3H1y7pyLbROA57AXKZvT
-h8sJsj1CTh3CoSGpEk+7SfWL6uZPl3xO7xyk4e7dKE2vTpRKZHC+ZnJoC52pHnfX
-g5OvV8dC7OkNQkxAF+XHxw==
------END PRIVATE KEY-----`,
-  client_email: "firebase-adminsdk-fbsvc@smartfinques-app-7f09c.iam.gserviceaccount.com"
+  private_key: process.env.FIREBASE_PRIVATE_KEY
+    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    : undefined,
+  client_email: process.env.FIREBASE_CLIENT_EMAIL
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-})
+if (!admin.apps.length && serviceAccount.private_key && serviceAccount.client_email) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  })
+}
 
-const db = admin.firestore()
+const db = admin.apps.length ? admin.firestore() : null
 
 const app = express()
 app.use(cors())
@@ -58,86 +34,186 @@ const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/ent
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
 function delay(ms){
-  return new Promise(r=>setTimeout(r,ms))
+ return new Promise(r=>setTimeout(r,ms))
 }
 
-// 🔥 SYNC CON LOGS VISUALES
-app.get("/sync", async (req, res) => {
+// 🧠 LIMPIAR DATOS PRO
+function limpiarPropiedad(p){
 
-  res.setHeader("Content-Type", "text/html; charset=utf-8")
-
-  function log(msg){
-    res.write(msg + "<br>")
-    console.log(msg)
+  const fotos=[]
+  for(let i=1;i<=20;i++){
+    if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
   }
+
+  return {
+    referencia: p.ref || `REF-${Math.random()}`,
+    titulo: p.titulo1 || "Sin título",
+    descripcion: p.descrip1 || "",
+    precio: isNaN(parseFloat(p.precioinmo)) ? 0 : parseFloat(p.precioinmo),
+
+    ciudad: p.ciudad || "Desconocida",
+    zona: p.zona || "",
+
+    latitud: isNaN(parseFloat(p.latitud)) ? 0 : parseFloat(p.latitud),
+    longitud: isNaN(parseFloat(p.altitud)) ? 0 : parseFloat(p.altitud),
+
+    fotos
+  }
+}
+
+// 🔹 CARGAR XML
+async function cargarXML(log){
+
+ log("📥 Descargando XML...")
+
+ const response = await axios.get(XML_URL)
+ const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
+ const props = parsed?.propiedades?.propiedad || []
+
+ log(`📊 Propiedades encontradas: ${props.length}`)
+
+ const results=[]
+
+ for(const p of props){
+   const limpio = limpiarPropiedad(p)
+   results.push(limpio)
+ }
+
+ return results
+}
+
+// 🔹 SYNC PRO
+async function syncBase44(propiedades, log){
+
+ const existing = await axios.get(BASE44_URL,{
+  headers:{api_key:API_KEY}
+ })
+
+ let ok = 0
+ let fail = 0
+
+ for(const p of propiedades){
 
   try{
 
-    log("🔄 Iniciando sync...")
-    log("📥 Descargando XML...")
+    const yaExiste = existing.data.find(x=>x.referencia === p.referencia)
 
-    const response = await axios.get(XML_URL)
-    const parsed = await xml2js.parseStringPromise(response.data,{explicitArray:false})
-    const props = parsed?.propiedades?.propiedad || []
+    if(yaExiste){
 
-    log("📊 Propiedades encontradas: " + props.length)
+      await axios.put(`${BASE44_URL}/${yaExiste.id}`,p,{
+        headers:{api_key:API_KEY}
+      })
 
-    const existing = await axios.get(BASE44_URL,{
-      headers:{api_key:API_KEY}
-    })
+      log(`🔁 Actualizado: ${p.referencia}`)
 
-    for(const p of props){
+    }else{
 
-      const fotos=[]
-      for(let i=1;i<=20;i++){
-        if(p[`foto${i}`]) fotos.push(p[`foto${i}`])
-      }
+      await axios.post(BASE44_URL,p,{
+        headers:{api_key:API_KEY}
+      })
 
-      const property = {
-        referencia: p.ref,
-        titulo: p.titulo1 || "",
-        descripcion: p.descrip1 || "",
-        precio: parseFloat(p.precioinmo || 0),
-        ciudad: p.ciudad,
-        zona: p.zona,
-        latitud: parseFloat(p.latitud || 0),
-        longitud: parseFloat(p.altitud || 0),
-        fotos
-      }
-
-      const yaExiste = existing.data.find(x=>x.referencia === property.referencia)
-
-      if(yaExiste){
-        await axios.put(`${BASE44_URL}/${yaExiste.id}`,property,{
-          headers:{api_key:API_KEY}
-        })
-        log("🔁 Actualizado: " + property.referencia)
-      }else{
-        await axios.post(BASE44_URL,property,{
-          headers:{api_key:API_KEY}
-        })
-        log("🆕 Creado: " + property.referencia)
-      }
-
-      await delay(200)
+      log(`🆕 Creado: ${p.referencia}`)
     }
 
-    log("✅ Sync completado")
-
-    res.end()
+    ok++
 
   }catch(e){
-    log("❌ Error: " + e.message)
-    res.end()
+
+    fail++
+
+    log(`❌ Error en ${p.referencia}`)
+
+    if(e.response){
+      log(`📛 Detalle: ${JSON.stringify(e.response.data)}`)
+    }else{
+      log(`📛 ${e.message}`)
+    }
   }
+
+  await delay(200)
+ }
+
+ log(`\n✅ OK: ${ok}`)
+ log(`❌ FALLIDOS: ${fail}`)
+}
+
+// 🔥 FIREBASE
+async function guardarLead(data){
+ if(!db) return
+ await db.collection("leads").add({
+  ...data,
+  createdAt: new Date()
+ })
+}
+
+async function crearUsuario(user){
+ if(!db) return
+ await db.collection("users").doc(user.id).set({
+  email:user.email,
+  role:"user"
+ })
+}
+
+// 🔥 API NORMAL
+app.post("/api", async (req,res)=>{
+
+ const {action,data} = req.body
+
+ try{
+
+  if(action === "lead"){
+   await guardarLead(data)
+   return res.json({ok:true})
+  }
+
+  if(action === "crearUsuario"){
+   await crearUsuario(data)
+   return res.json({ok:true})
+  }
+
+  res.json({error:"acción no válida"})
+
+ }catch(e){
+  console.log(e)
+  res.json({error:true})
+ }
 
 })
 
-// ROOT
+// 🚀 SYNC VISUAL EN PANTALLA
+app.get("/sync", async (req,res)=>{
+
+ res.setHeader("Content-Type", "text/plain; charset=utf-8")
+
+ const log = (msg)=>{
+   console.log(msg)
+   res.write(msg + "\n")
+ }
+
+ try{
+
+  log("🚀 Iniciando sync...\n")
+
+  const props = await cargarXML(log)
+
+  await syncBase44(props, log)
+
+  log("\n🎉 Sync terminado")
+
+  res.end()
+
+ }catch(e){
+
+  log(`❌ ERROR GENERAL: ${e.message}`)
+  res.end()
+ }
+})
+
+// HEALTH CHECK
 app.get("/",(req,res)=>{
-  res.json({status:"ok"})
+ res.json({status:"ok"})
 })
 
 app.listen(PORT,()=>{
-  console.log("Servidor activo en puerto " + PORT)
+ console.log("Servidor activo en puerto " + PORT)
 })
