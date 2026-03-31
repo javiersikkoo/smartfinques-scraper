@@ -33,10 +33,7 @@ const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
 const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
 const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
 
-// ⏳ Delay
-function delay(ms) {
-  return new Promise(r => setTimeout(r, ms))
-}
+const delay = (ms) => new Promise(r => setTimeout(r, ms))
 
 // 🔧 LIMPIAR FOTOS
 function limpiarFotos(fotosRaw) {
@@ -50,7 +47,7 @@ function limpiarFotos(fotosRaw) {
   return fotos
 }
 
-// 🧠 EXTRAER CARACTERÍSTICAS DINÁMICAS
+// 🧠 CARACTERÍSTICAS
 function extraerCaracteristicas(p) {
   const caracteristicas = {}
 
@@ -58,26 +55,15 @@ function extraerCaracteristicas(p) {
 
     let valor = p[key]
 
-    // ignoramos campos grandes o innecesarios
-    if (
-      key.includes("foto") ||
-      key === "titulo1" ||
-      key === "descrip1"
-    ) continue
+    if (key.includes("foto") || key === "titulo1" || key === "descrip1") continue
 
-    // limpiar valores tipo objeto
-    if (typeof valor === "object" && valor._) {
-      valor = valor._
-    }
+    if (typeof valor === "object" && valor._) valor = valor._
 
-    // convertir booleanos
     if (valor === "1") valor = "Sí"
     if (valor === "0") valor = "No"
 
-    // evitar nulls
     if (valor === "" || valor == null) continue
 
-    // formatear nombre bonito
     const nombre = key
       .replace(/_/g, " ")
       .replace(/\b\w/g, l => l.toUpperCase())
@@ -88,10 +74,8 @@ function extraerCaracteristicas(p) {
   return caracteristicas
 }
 
-// 📥 CARGAR XML
+// 📥 XML
 async function cargarXML() {
-
-  console.log("📥 Descargando XML...")
 
   const response = await axios.get(XML_URL)
   const parsed = await xml2js.parseStringPromise(response.data, {
@@ -100,11 +84,9 @@ async function cargarXML() {
 
   const props = parsed?.propiedades?.propiedad || []
 
-  console.log(`📊 Propiedades: ${props.length}`)
+  console.log("📊 XML:", props.length)
 
-  const results = []
-
-  for (const p of props) {
+  return props.map(p => {
 
     let fotosRaw = []
 
@@ -112,10 +94,7 @@ async function cargarXML() {
       if (p[`foto${i}`]) fotosRaw.push(p[`foto${i}`])
     }
 
-    const fotos = limpiarFotos(fotosRaw)
-    const caracteristicas = extraerCaracteristicas(p)
-
-    results.push({
+    return {
       referencia: p.ref || "",
       titulo: p.titulo1 || "",
       descripcion: p.descrip1 || "",
@@ -125,66 +104,111 @@ async function cargarXML() {
       tipo_inmueble: p.tipo || "vivienda",
       latitud: parseFloat(p.latitud || 0),
       longitud: parseFloat(p.altitud || 0),
-      fotos,
-      caracteristicas // 🔥 LO IMPORTANTE
-    })
-  }
-
-  return results
+      fotos: limpiarFotos(fotosRaw),
+      caracteristicas: extraerCaracteristicas(p)
+    }
+  })
 }
 
-// 🔄 SYNC
+// 🔄 SYNC COMPLETO
 async function syncBase44(propiedades) {
 
-  const existing = await axios.get(BASE44_URL, {
+  const existingRes = await axios.get(BASE44_URL, {
     headers: { api_key: API_KEY }
   })
 
+  const existentes = existingRes.data
+
+  const refsXML = propiedades.map(p => p.referencia)
+
+  let ok = 0
+  let deleted = 0
+  let fail = 0
+
+  // 🔁 CREATE / UPDATE
   for (const p of propiedades) {
 
     try {
 
-      const yaExiste = existing.data.find(x => x.referencia === p.referencia)
+      const yaExiste = existentes.find(x => x.referencia === p.referencia)
 
       if (yaExiste) {
+
         await axios.put(`${BASE44_URL}/${yaExiste.id}`, p, {
           headers: { api_key: API_KEY }
         })
-        console.log(`🔁 ${p.referencia}`)
+
+        console.log("🔁", p.referencia)
+
       } else {
+
         await axios.post(BASE44_URL, p, {
           headers: { api_key: API_KEY }
         })
-        console.log(`🆕 ${p.referencia}`)
+
+        console.log("🆕", p.referencia)
       }
 
+      ok++
       await delay(200)
 
     } catch (e) {
-      console.log(`❌ Error en ${p.referencia}`)
+      console.log("❌ Error en", p.referencia)
+      fail++
     }
   }
+
+  // 🗑️ DELETE LOS QUE YA NO EXISTEN
+  for (const item of existentes) {
+
+    if (!refsXML.includes(item.referencia)) {
+
+      try {
+
+        await axios.delete(`${BASE44_URL}/${item.id}`, {
+          headers: { api_key: API_KEY }
+        })
+
+        console.log("🗑️ Eliminado:", item.referencia)
+        deleted++
+
+        await delay(150)
+
+      } catch (e) {
+        console.log("❌ Error eliminando", item.referencia)
+      }
+
+    }
+  }
+
+  console.log("✅ OK:", ok)
+  console.log("🗑️ BORRADOS:", deleted)
+  console.log("❌ FALLIDOS:", fail)
 }
 
-// 🚀 SYNC ENDPOINT
+// 🚀 SYNC
 app.get("/sync", async (req, res) => {
 
   res.setHeader("Content-Type", "text/plain")
 
   try {
-    res.write("🚀 Sync iniciado\n")
+
+    res.write("🚀 Iniciando sync...\n")
 
     const props = await cargarXML()
     await syncBase44(props)
 
-    res.write("✅ Sync completado\n")
+    res.write("✅ Sync completo\n")
     res.end()
 
   } catch (e) {
+
     console.log(e)
     res.write("❌ Error\n")
     res.end()
+
   }
+
 })
 
 // 🔥 LEADS
@@ -203,5 +227,5 @@ app.get("/", (req, res) => {
 
 // 🚀 START
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Servidor activo en puerto ${PORT}`)
+  console.log("🚀 Servidor activo en puerto", PORT)
 })
