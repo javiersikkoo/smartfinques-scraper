@@ -199,3 +199,58 @@ app.get("/test-firebase", async (req, res) => {
     res.send("Firebase ERROR: " + e.message)
   }
 })
+// Endpoint para registrar usuarios en Firebase
+app.post("/register", async (req, res) => {
+  const { userId, email, name } = req.body;
+
+  try {
+    // Guardar usuario en Firebase
+    await db.collection("users").doc(userId).set({
+      email,
+      name,
+      createdAt: new Date(),
+      role: "user",  // Aquí puedes definir un rol por defecto
+    });
+
+    res.status(200).json({ message: "Usuario registrado correctamente" });
+  } catch (e) {
+    res.status(500).json({ error: "Error al registrar usuario: " + e.message });
+  }
+});
+// Endpoint para guardar leads en Firebase
+app.post("/lead", async (req, res) => {
+  const { name, email, phone, propertyReference } = req.body;
+
+  try {
+    // Guardar lead en Firebase
+    await db.collection("leads").add({
+      name,
+      email,
+      phone,
+      propertyReference,
+      createdAt: new Date(),
+    });
+
+    res.status(200).json({ message: "Lead guardado correctamente" });
+  } catch (e) {
+    res.status(500).json({ error: "Error al guardar lead: " + e.message });
+  }
+});
+// Endpoint para guardar mensajes de chat en Firebase
+app.post("/chat", async (req, res) => {
+  const { userId, agentId, message } = req.body;
+
+  try {
+    // Crear una nueva colección de chats entre el usuario y el agente
+    const chatRef = await db.collection("chats").add({
+      userId,
+      agentId,
+      message,
+      createdAt: new Date(),
+    });
+
+    res.status(200).json({ message: "Mensaje enviado correctamente", chatId: chatRef.id });
+  } catch (e) {
+    res.status(500).json({ error: "Error al enviar el mensaje: " + e.message });
+  }
+});
