@@ -1,209 +1,201 @@
-const express = require("express")
-const cors = require("cors")
-const xml2js = require("xml2js")
-const axios = require("axios")
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const xml2js = require('xml2js');
+const admin = require('firebase-admin');
 
-// 🔥 FIREBASE
-const admin = require("firebase-admin")
+// 🔥 Firebase Setup
+const serviceAccount = {
+  type: "service_account",
+  project_id: "smartfinques-app-7f09c",
+  private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  client_email: process.env.FIREBASE_CLIENT_EMAIL
+};
 
-const app = express()
-app.use(cors())
-app.use(express.json())
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
-const PORT = process.env.PORT || 3000
+const db = admin.firestore();
 
-// 🔐 Firebase seguro (Render ENV)
-const privateKey = process.env.FIREBASE_PRIVATE_KEY
-  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
-  : null
+// 🔹 Express Setup
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-if (!admin.apps.length && privateKey && process.env.FIREBASE_CLIENT_EMAIL) {
-  admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId: "smartfinques-app-7f09c",
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: privateKey
-    })
-  })
-  console.log("🔥 Firebase conectado")
-} else {
-  console.log("⚠️ Firebase NO configurado")
-}
+const PORT = process.env.PORT || 10000;
 
-const db = admin.apps.length ? admin.firestore() : null
+// 🔹 Base44 Setup
+const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble";
+const API_KEY = "6bfecf96fcc54595a962b1c94857c61d";
 
-// 🔗 CONFIG
-const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml"
-const BASE44_URL = "https://app.base44.com/api/apps/699c3190ff4f2a860729de59/entities/Inmueble"
-const API_KEY = "6bfecf96fcc54595a962b1c94857c61d"
+// 🔹 XML URL
+const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml";
 
-// ⏱ delay
+// 🔹 Helper functions
 function delay(ms) {
-  return new Promise(r => setTimeout(r, ms))
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 🧠 LIMPIAR FOTOS
-function limpiarFotos(fotos) {
-  return fotos.map(f => {
-    if (typeof f === "string") return f
-    if (typeof f === "object" && f._) return f._
-    return null
-  }).filter(Boolean)
-}
-
-// 🔹 CARGAR XML
+// 🔹 Parse XML and normalize properties
 async function cargarXML() {
-  console.log("📥 Descargando XML...")
+  const response = await axios.get(XML_URL);
+  const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false });
+  const props = parsed?.propiedades?.propiedad || [];
 
-  const response = await axios.get(XML_URL)
-  const parsed = await xml2js.parseStringPromise(response.data, { explicitArray: false })
-  const props = parsed?.propiedades?.propiedad || []
-
-  console.log("📊 Propiedades encontradas:", props.length)
-
-  const results = []
-
+  const results = [];
+  
+  // Process properties from XML
   for (const p of props) {
-
-    const fotosRaw = []
+    const fotos = [];
     for (let i = 1; i <= 20; i++) {
-      if (p[`foto${i}`]) fotosRaw.push(p[`foto${i}`])
+      if (p[`foto${i}`]) fotos.push(p[`foto${i}`]);
     }
 
-    const fotos = limpiarFotos(fotosRaw)
-
-    results.push({
+    const property = {
       referencia: p.ref,
       titulo: p.titulo1 || "",
       descripcion: p.descrip1 || "",
       precio: parseFloat(p.precioinmo || 0),
-      ciudad: p.ciudad || "",
-      zona: p.zona || "",
+      ciudad: p.ciudad,
+      zona: p.zona,
       latitud: parseFloat(p.latitud || 0),
       longitud: parseFloat(p.altitud || 0),
-      tipo_inmueble: p.tipo || "desconocido",
       fotos,
-      vendido: false,
-      fecha_actualizacion: new Date()
-    })
+      tipo_inmueble: p.tipo_ofer || "",
+      operacion: p.accion?.toLowerCase() || "venta",
+      habitaciones: parseInt(p.habitaciones || 0),
+      banos: parseInt(p.banyos || 0),
+      superficie: parseFloat(p.m_cons || 0),
+      disponible: true
+    };
+
+    results.push(property);
   }
 
-  return results
+  return results;
 }
 
-// 🔹 SYNC PRO
-async function syncBase44(propiedades) {
+// 🔹 Sync Properties to Base44
+async function syncBase44(properties) {
+  const existing = await axios.get(BASE44_URL, { headers: { api_key: API_KEY } });
 
-  console.log("🔄 Sincronizando con Base44...")
+  for (const p of properties) {
+    const alreadyExists = existing.data.find(x => x.referencia === p.referencia);
 
-  const existingRes = await axios.get(BASE44_URL, {
-    headers: { api_key: API_KEY }
-  })
-
-  const existentes = existingRes.data
-
-  const refsXML = propiedades.map(p => p.referencia)
-
-  let ok = 0
-  let fail = 0
-  let nuevos = 0
-  let vendidos = 0
-
-  // 🟢 CREAR / ACTUALIZAR
-  for (const p of propiedades) {
-    try {
-      const existe = existentes.find(x => x.referencia === p.referencia)
-
-      if (existe) {
-        await axios.put(`${BASE44_URL}/${existe.id}`, p, {
-          headers: { api_key: API_KEY }
-        })
-        console.log("🔁 Actualizado:", p.referencia)
-      } else {
-        await axios.post(BASE44_URL, {
-          ...p,
-          fecha_creacion: new Date()
-        }, {
-          headers: { api_key: API_KEY }
-        })
-        console.log("🆕 Nuevo:", p.referencia)
-        nuevos++
-
-        // 🔔 ALERTA FIREBASE
-        if (db) {
-          await db.collection("alertas").add({
-            tipo: "nuevo_inmueble",
-            referencia: p.referencia,
-            fecha: new Date()
-          })
-        }
-      }
-
-      ok++
-    } catch (err) {
-      console.log("❌ Error en", p.referencia)
-      fail++
+    if (alreadyExists) {
+      await axios.put(`${BASE44_URL}/${alreadyExists.id}`, p, {
+        headers: { api_key: API_KEY, "Content-Type": "application/json" }
+      });
+      console.log(`🔁 Actualizado: ${p.referencia}`);
+    } else {
+      await axios.post(BASE44_URL, p, {
+        headers: { api_key: API_KEY, "Content-Type": "application/json" }
+      });
+      console.log(`🔄 Nuevo inmueble: ${p.referencia}`);
     }
 
-    await delay(200)
+    await delay(500); // Anti-rate limit
   }
-
-  // 🔴 MARCAR COMO VENDIDOS
-  for (const e of existentes) {
-    if (!refsXML.includes(e.referencia)) {
-      try {
-        await axios.put(`${BASE44_URL}/${e.id}`, {
-          ...e,
-          vendido: true,
-          fecha_actualizacion: new Date()
-        }, {
-          headers: { api_key: API_KEY }
-        })
-
-        console.log("🏷️ Marcado como vendido:", e.referencia)
-        vendidos++
-      } catch (err) {
-        console.log("❌ Error marcando vendido:", e.referencia)
-      }
-
-      await delay(200)
-    }
-  }
-
-  console.log("✅ OK:", ok)
-  console.log("🆕 Nuevos:", nuevos)
-  console.log("🏷️ Vendidos:", vendidos)
-  console.log("❌ Fallidos:", fail)
-
-  return { ok, nuevos, vendidos, fail }
 }
 
-// 🌐 ENDPOINT VISUAL
-app.get("/sync", async (req, res) => {
+// 🔹 Mark properties as sold when no longer in XML
+async function markAsSold(propertiesInXml) {
+  const existing = await axios.get(BASE44_URL, { headers: { api_key: API_KEY } });
 
+  for (const property of existing.data) {
+    const isInXml = propertiesInXml.some(p => p.referencia === property.referencia);
+    
+    if (!isInXml) {
+      await axios.put(`${BASE44_URL}/${property.id}`, { ...property, disponible: false }, {
+        headers: { api_key: API_KEY, "Content-Type": "application/json" }
+      });
+      console.log(`🔒 Marcado como vendido: ${property.referencia}`);
+    }
+  }
+}
+
+// 🔹 Save lead to Firebase
+async function saveLead(data) {
+  await db.collection("leads").add({
+    ...data,
+    createdAt: new Date()
+  });
+}
+
+// 🔹 Save alert to Firebase
+async function saveAlert(data) {
+  await db.collection("alerts").add({
+    ...data,
+    createdAt: new Date()
+  });
+}
+
+// 🔹 Create user in Firebase
+async function createUser(user) {
+  await db.collection("users").doc(user.id).set({
+    email: user.email,
+    role: "user"
+  });
+}
+
+// 🔹 Sync Endpoint (manual)
+app.post('/sync', async (req, res) => {
   try {
-    console.log("🚀 Iniciando sync...")
-
-    const props = await cargarXML()
-    const result = await syncBase44(props)
-
-    res.json({
-      status: "SYNC COMPLETADO",
-      ...result
-    })
-
+    console.log("🚀 Iniciando sync...");
+    const properties = await cargarXML();
+    console.log("📥 Descargando XML...");
+    
+    // Sync properties
+    await syncBase44(properties);
+    
+    // Mark properties as sold
+    await markAsSold(properties);
+    
+    console.log("✅ Sincronización completada");
+    return res.json({ status: 'success' });
   } catch (err) {
-    console.log("❌ ERROR GLOBAL:", err.message)
-    res.status(500).json({ error: err.message })
+    console.error("❌ Error en la sincronización:", err);
+    return res.status(500).json({ status: 'error', message: err.message });
   }
-})
+});
 
-// 🟢 TEST
-app.get("/", (req, res) => {
-  res.send("Servidor funcionando")
-})
+// 🔹 Add new lead to Firebase
+app.post('/api/lead', async (req, res) => {
+  try {
+    await saveLead(req.body);
+    return res.json({ status: 'success' });
+  } catch (err) {
+    console.error("❌ Error al guardar lead:", err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
 
-// 🚀 ARRANQUE
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Servidor activo en puerto ${PORT}`)
+// 🔹 Create user in Firebase
+app.post('/api/usuario', async (req, res) => {
+  try {
+    await createUser(req.body);
+    return res.json({ status: 'success' });
+  } catch (err) {
+    console.error("❌ Error al crear usuario:", err);
+    return res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
+// 🔹 Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// 🔹 Start Server
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor activo en puerto ${PORT}`);
+});
+app.get("/test-firebase", async (req, res) => {
+  try {
+    await db.collection("test").add({ ok: true, fecha: new Date() })
+    res.send("Firebase OK")
+  } catch (e) {
+    res.send("Firebase ERROR: " + e.message)
+  }
 })
