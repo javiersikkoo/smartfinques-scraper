@@ -87,41 +87,43 @@ app.get('/properties', async (req, res) => {
   }
 });
 
-
 // ===============================
-// 🔹 SYNC BASE44
+// 🔹 SYNC BASE44 SEGURO
 // ===============================
-async function syncBase44(properties) {
-  const existing = await axios.get(BASE44_URL, {
-    headers: { api_key: API_KEY }
-  });
+async function syncBase44Safe(properties) {
+  let existingProps = [];
+  try {
+    const existing = await axios.get(BASE44_URL, { headers: { api_key: API_KEY } });
+    existingProps = Array.isArray(existing.data) ? existing.data : existing.data.data || [];
+  } catch (err) {
+    console.error("❌ Error al obtener propiedades existentes de Base44:", err.message);
+  }
 
   for (const p of properties) {
-    const found = existing.data.find(x => x.referencia === p.referencia);
+    try {
+      const found = existingProps.find(x => x.referencia === p.referencia);
 
-    if (found) {
-      await axios.put(`${BASE44_URL}/${found.id}`, p, {
-        headers: { api_key: API_KEY }
-      });
-      console.log("🔁 Actualizado:", p.referencia);
-    } else {
-      await axios.post(BASE44_URL, p, {
-        headers: { api_key: API_KEY }
-      });
-      console.log("🆕 Creado:", p.referencia);
+      if (found) {
+        await axios.put(`${BASE44_URL}/${found.id}`, p, { headers: { api_key: API_KEY } });
+        console.log("🔁 Actualizado:", p.referencia);
+      } else {
+        await axios.post(BASE44_URL, p, { headers: { api_key: API_KEY } });
+        console.log("🆕 Creado:", p.referencia);
+      }
+
+      await new Promise(r => setTimeout(r, 200));
+
+    } catch (propErr) {
+      console.error(`❌ Error al procesar propiedad ${p.referencia}:`, propErr.message);
     }
-
-    await delay(300);
   }
 }
 
-
 // ===============================
-// 🔹 SYNC
+// 🔹 SYNC COMBINADO GET + POST
 // ===============================
-app.post('/sync', async (req, res) => {
+async function handleSync(req, res) {
   try {
-    // Cargar XML
     let properties = [];
     try {
       properties = await cargarXML();
@@ -131,7 +133,6 @@ app.post('/sync', async (req, res) => {
       return res.status(500).json({ error: "Error al cargar XML", details: xmlErr.message });
     }
 
-    // Ejecutar sync
     try {
       await syncBase44Safe(properties);
       console.log("✅ Sync completado");
@@ -145,8 +146,11 @@ app.post('/sync', async (req, res) => {
     console.error("❌ Error inesperado en /sync:", err.message);
     res.status(500).json({ error: "Error inesperado", details: err.message });
   }
-});
+}
 
+// ✅ Registrar rutas
+app.post('/sync', handleSync);
+app.get('/sync', handleSync); // Ahora también funciona desde navegador
 
 // ===============================
 // 🔹 REGISTER USER
