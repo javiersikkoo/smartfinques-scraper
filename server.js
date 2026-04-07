@@ -140,15 +140,21 @@ app.post('/sync', async (req, res) => {
 // 🔹 USERS
 // ===============================
 app.post("/register", async (req, res) => {
-  const { userId, email, name } = req.body;
-
   try {
+    const { userId, email, name, telefono, preferencias } = req.body;
+
+    if (!userId || !email) {
+      return res.status(400).json({ error: "Faltan datos" });
+    }
+
     await db.collection("users").doc(userId).set({
       email,
-      name,
+      name: name || "",
+      telefono: telefono || "",
+      preferencias: preferencias || {},
       role: "user",
       createdAt: new Date()
-    });
+    }, { merge: true });
 
     res.json({ ok: true });
 
