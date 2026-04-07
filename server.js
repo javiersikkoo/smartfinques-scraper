@@ -88,7 +88,7 @@ app.get('/properties', async (req, res) => {
 });
 
 // ===============================
-// 🔹 SYNC BASE44 SEGURO
+// 🔹 SYNC BASE44 SEGURO CON BATCH + DELAY
 // ===============================
 async function syncBase44Safe(properties) {
   let existingProps = [];
@@ -99,29 +99,34 @@ async function syncBase44Safe(properties) {
     console.error("❌ Error al obtener propiedades existentes de Base44:", err.message);
   }
 
-  for (const p of properties) {
-    try {
-      const found = existingProps.find(x => x.referencia === p.referencia);
+  const batchSize = 5; // Número de propiedades que se procesan en paralelo
+  const delayBetweenBatches = 1000; // 1 segundo entre batches
 
-      if (found) {
-        await axios.put(`${BASE44_URL}/${found.id}`, p, { headers: { api_key: API_KEY } });
-        console.log("🔁 Actualizado:", p.referencia);
-      } else {
-        await axios.post(BASE44_URL, p, { headers: { api_key: API_KEY } });
-        console.log("🆕 Creado:", p.referencia);
+  for (let i = 0; i < properties.length; i += batchSize) {
+    const batch = properties.slice(i, i + batchSize);
+
+    // Ejecutamos las propiedades del batch en paralelo
+    await Promise.all(batch.map(async (p) => {
+      try {
+        const found = existingProps.find(x => x.referencia === p.referencia);
+
+        if (found) {
+          await axios.put(`${BASE44_URL}/${found.id}`, p, { headers: { api_key: API_KEY } });
+          console.log("🔁 Actualizado:", p.referencia);
+        } else {
+          await axios.post(BASE44_URL, p, { headers: { api_key: API_KEY } });
+          console.log("🆕 Creado:", p.referencia);
+        }
+      } catch (propErr) {
+        console.error(`❌ Error al procesar propiedad ${p.referencia}:`, propErr.message);
       }
+    }));
 
-      await new Promise(r => setTimeout(r, 200));
-
-    } catch (propErr) {
-      console.error(`❌ Error al procesar propiedad ${p.referencia}:`, propErr.message);
-    }
+    // Esperamos antes de pasar al siguiente batch
+    await new Promise(r => setTimeout(r, delayBetweenBatches));
   }
 }
 
-// ===============================
-// 🔹 SYNC COMBINADO GET + POST
-// ===============================
 async function handleSync(req, res) {
   try {
     let properties = [];
@@ -148,9 +153,9 @@ async function handleSync(req, res) {
   }
 }
 
-// ✅ Registrar rutas
+// Registrar rutas
 app.post('/sync', handleSync);
-app.get('/sync', handleSync); // Ahora también funciona desde navegador
+app.get('/sync', handleSync); // También funciona desde navegador
 
 // ===============================
 // 🔹 REGISTER USER
