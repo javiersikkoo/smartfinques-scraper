@@ -218,3 +218,17 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
   console.log("🔥 SERVER RUNNING ON", PORT);
 });
+app.post("/update-user", async (req, res) => {
+  try {
+    const { userId, data } = req.body;
+
+    await db.collection("users").doc(userId).update({
+      ...data
+    });
+
+    res.json({ ok: true });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
