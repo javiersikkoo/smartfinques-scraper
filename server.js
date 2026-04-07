@@ -4,11 +4,11 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const admin = require('firebase-admin');
 
-// 🔥 Firebase Setup
+// 🔥 Firebase Setup (SAFE)
 const serviceAccount = {
   type: "service_account",
   project_id: "smartfinques-app-7f09c",
-  private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
   client_email: process.env.FIREBASE_CLIENT_EMAIL
 };
 
@@ -76,7 +76,7 @@ async function cargarXML() {
 
 
 // ===============================
-// 🔹 ENDPOINT PROPERTIES (FIX SYNC)
+// 🔹 PROPERTIES
 // ===============================
 app.get('/properties', async (req, res) => {
   try {
@@ -89,7 +89,7 @@ app.get('/properties', async (req, res) => {
 
 
 // ===============================
-// 🔹 SYNC BASE44 (FIXED)
+// 🔹 SYNC BASE44
 // ===============================
 async function syncBase44(properties) {
   const existing = await axios.get(BASE44_URL, {
@@ -117,27 +117,23 @@ async function syncBase44(properties) {
 
 
 // ===============================
-// 🔹 SYNC MANUAL
+// 🔹 SYNC
 // ===============================
 app.post('/sync', async (req, res) => {
   try {
-    console.log("🚀 Sync iniciado");
-
     const properties = await cargarXML();
-
     await syncBase44(properties);
 
     res.json({ ok: true, total: properties.length });
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
 
 // ===============================
-// 🔹 USERS
+// 🔹 REGISTER USER
 // ===============================
 app.post("/register", async (req, res) => {
   try {
@@ -165,17 +161,15 @@ app.post("/register", async (req, res) => {
 
 
 // ===============================
-// 🔹 LEADS
+// 🔹 UPDATE USER
 // ===============================
-app.post("/lead", async (req, res) => {
+app.post("/update-user", async (req, res) => {
   try {
-    const lead = {
-      ...req.body,
-      estado: "nuevo",
-      createdAt: new Date()
-    };
+    const { userId, data } = req.body;
 
-    await db.collection("leads").add(lead);
+    if (!userId) return res.status(400).json({ error: "userId requerido" });
+
+    await db.collection("users").doc(userId).update(data);
 
     res.json({ ok: true });
 
@@ -186,19 +180,49 @@ app.post("/lead", async (req, res) => {
 
 
 // ===============================
-// 🔹 CHAT PRIVADO (FIX REAL)
+// 🔹 LEADS
+// ===============================
+app.post("/lead", async (req, res) => {
+  try {
+    if (!req.body.email) {
+      return res.status(400).json({ error: "Email requerido" });
+    }
+
+    await db.collection("leads").add({
+      ...req.body,
+      estado: "nuevo",
+      createdAt: new Date()
+    });
+
+    res.json({ ok: true });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ===============================
+// 🔹 CHAT PRIVADO
 // ===============================
 app.post("/chat", async (req, res) => {
   try {
     const { userId, propertyRef, message } = req.body;
 
+    if (!userId || !message) {
+      return res.status(400).json({ error: "Datos incompletos" });
+    }
+
     const chatId = `${userId}_${propertyRef}`;
 
-    await db.collection("chats").doc(chatId).collection("mensajes").add({
-      userId,
-      message,
-      createdAt: new Date()
-    });
+    await db.collection("chats")
+      .doc(chatId)
+      .collection("mensajes")
+      .add({
+        userId,
+        message,
+        createdAt: new Date()
+      });
 
     res.json({ ok: true, chatId });
 
@@ -215,20 +239,10 @@ app.get("/", (req, res) => {
   res.json({ status: "ok" });
 });
 
+
+// ===============================
+// 🚀 START
+// ===============================
 app.listen(PORT, () => {
   console.log("🔥 SERVER RUNNING ON", PORT);
-});
-app.post("/update-user", async (req, res) => {
-  try {
-    const { userId, data } = req.body;
-
-    await db.collection("users").doc(userId).update({
-      ...data
-    });
-
-    res.json({ ok: true });
-
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
 });
