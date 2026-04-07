@@ -121,13 +121,29 @@ async function syncBase44(properties) {
 // ===============================
 app.post('/sync', async (req, res) => {
   try {
-    const properties = await cargarXML();
-    await syncBase44(properties);
+    // Cargar XML
+    let properties = [];
+    try {
+      properties = await cargarXML();
+      console.log(`✅ XML cargado, propiedades encontradas: ${properties.length}`);
+    } catch (xmlErr) {
+      console.error("❌ Error al cargar XML:", xmlErr.message);
+      return res.status(500).json({ error: "Error al cargar XML", details: xmlErr.message });
+    }
 
-    res.json({ ok: true, total: properties.length });
+    // Ejecutar sync
+    try {
+      await syncBase44Safe(properties);
+      console.log("✅ Sync completado");
+      res.json({ ok: true, total: properties.length });
+    } catch (syncErr) {
+      console.error("❌ Error en syncBase44Safe:", syncErr.message);
+      res.status(500).json({ error: "Error en syncBase44Safe", details: syncErr.message });
+    }
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error("❌ Error inesperado en /sync:", err.message);
+    res.status(500).json({ error: "Error inesperado", details: err.message });
   }
 });
 
