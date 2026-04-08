@@ -35,6 +35,28 @@ const XML_URL = "http://procesos.apinmo.com/xml/v2/ExgnIov1/6429-web.xml";
 // 🔹 Delay
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
+// ===============================
+// 🚀 FUNCIÓN MAESTRA NOTIFICACIONES
+// ===============================
+async function enviarNotificacion(tipo, data) {
+  console.log(`🔔 Notificación [${tipo}]:`, data.mensaje);
+  
+  // Aquí podrías integrar en el futuro:
+  // - Firebase Cloud Messaging (Push)
+  // - SendGrid (Emails)
+  // - WhatsApp API
+  
+  try {
+    await db.collection("notifications").add({
+      tipo,
+      ...data,
+      read: false,
+      createdAt: new Date()
+    });
+  } catch (e) {
+    console.error("❌ Error guardando notificación:", e.message);
+  }
+}
 
 // ===============================
 // 🔹 CARGAR XML
@@ -74,7 +96,6 @@ async function cargarXML() {
   return results;
 }
 
-
 // ===============================
 // 🔹 PROPERTIES
 // ===============================
@@ -86,7 +107,6 @@ app.get('/properties', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ===============================
 // 🔹 SYNC BASE44
@@ -137,7 +157,6 @@ async function syncBase44Safe(properties) {
   }
 }
 
-
 // ===============================
 // 🔹 SYNC ENDPOINT
 // ===============================
@@ -156,26 +175,33 @@ async function handleSync(req, res) {
 app.post('/sync', handleSync);
 app.get('/sync', handleSync);
 
-
 // ===============================
-// 🔹 REGISTER USER
+// 🔹 REGISTER USER (MEJORADO)
 // ===============================
 app.post("/register", async (req, res) => {
   try {
     const { userId, email, name, telefono, preferencias } = req.body;
 
     if (!userId || !email) {
-      return res.status(400).json({ error: "Faltan datos" });
+      return res.status(400).json({ error: "Faltan datos esenciales" });
     }
 
-    await db.collection("users").doc(userId).set({
+    const userData = {
       email,
       name: name || "",
       telefono: telefono || "",
       preferencias: preferencias || {},
-      role: "user",
+      role: "user", // Rol por defecto
       createdAt: new Date()
-    }, { merge: true });
+    };
+
+    await db.collection("users").doc(userId).set(userData, { merge: true });
+
+    // Notificar registro
+    await enviarNotificacion("NUEVO_USUARIO", {
+      mensaje: `Nuevo usuario registrado: ${email}`,
+      userId
+    });
 
     res.json({ ok: true });
 
@@ -184,9 +210,30 @@ app.post("/register", async (req, res) => {
   }
 });
 
+// ===============================
+// 🔹 UPDATE ROLE (NUEVO PARA BASE44/ADMIN)
+// ===============================
+app.post("/update-role", async (req, res) => {
+  try {
+    const { userId, newRole } = req.body; // roles: 'user', 'comercial', 'admin'
+
+    if (!userId || !newRole) {
+      return res.status(400).json({ error: "userId y newRole son requeridos" });
+    }
+
+    await db.collection("users").doc(userId).update({
+      role: newRole
+    });
+
+    res.json({ ok: true, message: `Rol actualizado a ${newRole}` });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ===============================
-// 🔹 UPDATE USER (FIXED)
+// 🔹 UPDATE USER
 // ===============================
 app.post("/update-user", async (req, res) => {
   try {
@@ -204,7 +251,6 @@ app.post("/update-user", async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
-
 
 // ===============================
 // 🔹 GET USERS (ADMIN PANEL)
@@ -225,9 +271,8 @@ app.get("/users", async (req, res) => {
   }
 });
 
-
 // ===============================
-// 🔹 LEADS
+// 🔹 LEADS (CON NOTIFICACIÓN)
 // ===============================
 app.post("/lead", async (req, res) => {
   try {
@@ -235,11 +280,17 @@ app.post("/lead", async (req, res) => {
       return res.status(400).json({ error: "Email requerido" });
     }
 
-    await db.collection("leads").add({
+    const leadRef = await db.collection("leads").add({
       ...req.body,
       estado: "nuevo",
       asignadoA: null,
       createdAt: new Date()
+    });
+
+    // Notificar nuevo lead
+    await enviarNotificacion("NUEVO_LEAD", {
+      mensaje: `Nuevo lead de interés: ${req.body.email}`,
+      leadId: leadRef.id
     });
 
     res.json({ ok: true });
@@ -249,9 +300,8 @@ app.post("/lead", async (req, res) => {
   }
 });
 
-
 // ===============================
-// 🔹 ASSIGN LEAD (ADMIN → COMERCIAL)
+// 🔹 ASSIGN LEAD
 // ===============================
 app.post("/assign-lead", async (req, res) => {
   try {
@@ -269,9 +319,8 @@ app.post("/assign-lead", async (req, res) => {
   }
 });
 
-
 // ===============================
-// 🔹 CHAT PRIVADO MEJORADO
+// 🔹 CHAT PRIVADO (CON NOTIFICACIÓN)
 // ===============================
 app.post("/chat", async (req, res) => {
   try {
@@ -293,6 +342,14 @@ app.post("/chat", async (req, res) => {
         createdAt: new Date()
       });
 
+    // Notificar mensaje si es del usuario hacia la inmobiliaria
+    if (senderRole !== "admin" && senderRole !== "comercial") {
+      await enviarNotificacion("NUEVO_MENSAJE_CHAT", {
+        mensaje: `Mensaje de chat en propiedad ${propertyRef}`,
+        chatId
+      });
+    }
+
     res.json({ ok: true, chatId });
 
   } catch (e) {
@@ -300,14 +357,12 @@ app.post("/chat", async (req, res) => {
   }
 });
 
-
 // ===============================
 // 🔹 HEALTH
 // ===============================
 app.get("/", (req, res) => {
-  res.json({ status: "ok" });
+  res.json({ status: "ok", service: "SmartFinques API" });
 });
-
 
 // ===============================
 // 🚀 START
