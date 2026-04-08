@@ -87,75 +87,75 @@ app.get('/properties', async (req, res) => {
   }
 });
 
+
 // ===============================
-// 🔹 SYNC BASE44 SEGURO CON BATCH + DELAY
+// 🔹 SYNC BASE44
 // ===============================
 async function syncBase44Safe(properties) {
   let existingProps = [];
+
   try {
-    const existing = await axios.get(BASE44_URL, { headers: { api_key: API_KEY } });
-    existingProps = Array.isArray(existing.data) ? existing.data : existing.data.data || [];
+    const existing = await axios.get(BASE44_URL, {
+      headers: { api_key: API_KEY }
+    });
+
+    existingProps = Array.isArray(existing.data)
+      ? existing.data
+      : existing.data.data || [];
+
   } catch (err) {
-    console.error("❌ Error al obtener propiedades existentes de Base44:", err.message);
+    console.error("❌ Error Base44:", err.message);
   }
 
-  const batchSize = 5; // Número de propiedades que se procesan en paralelo
-  const delayBetweenBatches = 1000; // 1 segundo entre batches
+  const batchSize = 5;
 
   for (let i = 0; i < properties.length; i += batchSize) {
     const batch = properties.slice(i, i + batchSize);
 
-    // Ejecutamos las propiedades del batch en paralelo
     await Promise.all(batch.map(async (p) => {
       try {
         const found = existingProps.find(x => x.referencia === p.referencia);
 
         if (found) {
-          await axios.put(`${BASE44_URL}/${found.id}`, p, { headers: { api_key: API_KEY } });
+          await axios.put(`${BASE44_URL}/${found.id}`, p, {
+            headers: { api_key: API_KEY }
+          });
           console.log("🔁 Actualizado:", p.referencia);
         } else {
-          await axios.post(BASE44_URL, p, { headers: { api_key: API_KEY } });
+          await axios.post(BASE44_URL, p, {
+            headers: { api_key: API_KEY }
+          });
           console.log("🆕 Creado:", p.referencia);
         }
-      } catch (propErr) {
-        console.error(`❌ Error al procesar propiedad ${p.referencia}:`, propErr.message);
+
+      } catch (e) {
+        console.error("❌ Error propiedad:", p.referencia);
       }
     }));
 
-    // Esperamos antes de pasar al siguiente batch
-    await new Promise(r => setTimeout(r, delayBetweenBatches));
+    await delay(1000);
   }
 }
 
+
+// ===============================
+// 🔹 SYNC ENDPOINT
+// ===============================
 async function handleSync(req, res) {
   try {
-    let properties = [];
-    try {
-      properties = await cargarXML();
-      console.log(`✅ XML cargado, propiedades encontradas: ${properties.length}`);
-    } catch (xmlErr) {
-      console.error("❌ Error al cargar XML:", xmlErr.message);
-      return res.status(500).json({ error: "Error al cargar XML", details: xmlErr.message });
-    }
+    const properties = await cargarXML();
+    await syncBase44Safe(properties);
 
-    try {
-      await syncBase44Safe(properties);
-      console.log("✅ Sync completado");
-      res.json({ ok: true, total: properties.length });
-    } catch (syncErr) {
-      console.error("❌ Error en syncBase44Safe:", syncErr.message);
-      res.status(500).json({ error: "Error en syncBase44Safe", details: syncErr.message });
-    }
+    res.json({ ok: true, total: properties.length });
 
   } catch (err) {
-    console.error("❌ Error inesperado en /sync:", err.message);
-    res.status(500).json({ error: "Error inesperado", details: err.message });
+    res.status(500).json({ error: err.message });
   }
 }
 
-// Registrar rutas
 app.post('/sync', handleSync);
-app.get('/sync', handleSync); // También funciona desde navegador
+app.get('/sync', handleSync);
+
 
 // ===============================
 // 🔹 REGISTER USER
@@ -186,17 +186,39 @@ app.post("/register", async (req, res) => {
 
 
 // ===============================
-// 🔹 UPDATE USER
+// 🔹 UPDATE USER (FIXED)
 // ===============================
 app.post("/update-user", async (req, res) => {
   try {
     const { userId, data } = req.body;
 
-    if (!userId) return res.status(400).json({ error: "userId requerido" });
+    if (!userId) {
+      return res.status(400).json({ error: "userId requerido" });
+    }
 
-    await db.collection("users").doc(userId).update(data);
+    await db.collection("users").doc(userId).set(data, { merge: true });
 
     res.json({ ok: true });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ===============================
+// 🔹 GET USERS (ADMIN PANEL)
+// ===============================
+app.get("/users", async (req, res) => {
+  try {
+    const snapshot = await db.collection("users").get();
+
+    const users = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+
+    res.json(users);
 
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -216,6 +238,7 @@ app.post("/lead", async (req, res) => {
     await db.collection("leads").add({
       ...req.body,
       estado: "nuevo",
+      asignadoA: null,
       createdAt: new Date()
     });
 
@@ -228,11 +251,31 @@ app.post("/lead", async (req, res) => {
 
 
 // ===============================
-// 🔹 CHAT PRIVADO
+// 🔹 ASSIGN LEAD (ADMIN → COMERCIAL)
+// ===============================
+app.post("/assign-lead", async (req, res) => {
+  try {
+    const { leadId, comercialId } = req.body;
+
+    await db.collection("leads").doc(leadId).update({
+      asignadoA: comercialId,
+      estado: "asignado"
+    });
+
+    res.json({ ok: true });
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ===============================
+// 🔹 CHAT PRIVADO MEJORADO
 // ===============================
 app.post("/chat", async (req, res) => {
   try {
-    const { userId, propertyRef, message } = req.body;
+    const { userId, propertyRef, message, senderRole } = req.body;
 
     if (!userId || !message) {
       return res.status(400).json({ error: "Datos incompletos" });
@@ -245,6 +288,7 @@ app.post("/chat", async (req, res) => {
       .collection("mensajes")
       .add({
         userId,
+        senderRole: senderRole || "user",
         message,
         createdAt: new Date()
       });
